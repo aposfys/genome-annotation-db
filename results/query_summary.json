@@ -1,0 +1,85 @@
+{
+  "Q1": {
+    "title": "Transcripts of a named gene",
+    "columns": [
+      "gene_id",
+      "gene_name",
+      "transcript_id",
+      "tx_start",
+      "tx_end",
+      "tx_length"
+    ],
+    "rows": 2,
+    "parameters": [
+      "DEFB125"
+    ]
+  },
+  "Q2": {
+    "title": "Most heavily transcribed genes",
+    "columns": [
+      "chrom",
+      "gene_id",
+      "gene_name",
+      "n_transcripts"
+    ],
+    "rows": 20,
+    "parameters": []
+  },
+  "Q3": {
+    "title": "Transcripts with the most exons",
+    "columns": [
+      "transcript_id",
+      "gene_id",
+      "gene_name",
+      "n_exons",
+      "max_exon_rank"
+    ],
+    "rows": 30,
+    "parameters": []
+  },
+  "Q4": {
+    "title": "Genes carrying at least 20 GO terms",
+    "columns": [
+      "gene_id",
+      "gene_name",
+      "n_go_terms"
+    ],
+    "rows": 219,
+    "parameters": []
+  },
+  "Q5": {
+    "title": "Annotation depth per GO namespace",
+    "columns": [
+      "go_namespace",
+      "n_genes",
+      "total_annotations",
+      "avg_go_per_gene"
+    ],
+    "rows": 3,
+    "parameters": []
+  },
+  "Q6": {
+    "title": "Structure of genes carrying a GO term",
+    "columns": [
+      "gene_id",
+      "gene_name",
+      "n_transcripts",
+      "avg_exons_per_transcript"
+    ],
+    "rows": 13,
+    "parameters": [
+      "GO:0007186"
+    ]
+  },
+  "Q7": {
+    "title": "Exon reuse across transcripts, per gene",
+    "columns": [
+      "gene_id",
+      "gene_name",
+      "total_unique_exons",
+      "shared_exons"
+    ],
+    "rows": 702,
+    "parameters": []
+  }
+}

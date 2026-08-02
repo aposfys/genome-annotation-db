@@ -1,0 +1,20 @@
+{
+  "inserted": {
+    "gene": 769,
+    "transcript": 9950,
+    "exon": 26970,
+    "transcript_exon": 97742,
+    "go_term": 3817,
+    "gene_go": 12596
+  },
+  "rejected": {
+    "go: no accession": 3352,
+    "go: unmapped or missing domain": 3483
+  },
+  "rejection_examples": {
+    "go: no accession": "gene ENSG00000260861",
+    "go: unmapped or missing domain": "GO:0042421 domain='empty'"
+  },
+  "total_inserted": 151844,
+  "total_rejected": 6835
+}

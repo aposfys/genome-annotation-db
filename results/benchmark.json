@@ -1,0 +1,99 @@
+{
+  "summary": {
+    "queries": 7,
+    "repeats": 5,
+    "total_without_indexes_ms": 131.74,
+    "total_with_indexes_ms": 123.37,
+    "overall_speedup": 1.07,
+    "median_speedup": 1.04,
+    "max_speedup": 47.09,
+    "queries_using_an_index": 4,
+    "queries_with_a_changed_plan": 4
+  },
+  "queries": [
+    {
+      "query": "Q1",
+      "title": "Transcripts of a named gene",
+      "rows": 2,
+      "without_indexes_ms": 1.11,
+      "with_indexes_ms": 0.02,
+      "speedup": 47.09,
+      "plan_uses_index": true,
+      "plan_changed": true,
+      "plan_with_indexes": "6 0 63 SEARCH g USING INDEX idx_gene_name (gene_name=?) | 13 0 62 SEARCH t USING INDEX idx_transcript_gene (gene_id=?) | 29 0 0 USE TEMP B-TREE FOR ORDER BY",
+      "plan_without_indexes": "5 0 216 SCAN t | 7 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 23 0 0 USE TEMP B-TREE FOR ORDER BY"
+    },
+    {
+      "query": "Q2",
+      "title": "Most heavily transcribed genes",
+      "rows": 20,
+      "without_indexes_ms": 5.61,
+      "with_indexes_ms": 3.33,
+      "speedup": 1.69,
+      "plan_uses_index": true,
+      "plan_changed": true,
+      "plan_with_indexes": "11 0 223 SCAN g USING INDEX idx_gene_chrom | 14 0 62 SEARCH t USING INDEX idx_transcript_gene (gene_id=?) LEFT-JOIN | 22 0 0 USE TEMP B-TREE FOR GROUP BY | 78 0 0 USE TEMP B-TREE FOR ORDER BY",
+      "plan_without_indexes": "10 0 211 SCAN g USING INDEX sqlite_autoindex_gene_1 | 22 0 53 SEARCH t USING AUTOMATIC COVERING INDEX (gene_id=?) LEFT-JOIN | 29 0 0 USE TEMP B-TREE FOR GROUP BY | 84 0 0 USE TEMP B-TREE FOR ORDER BY"
+    },
+    {
+      "query": "Q3",
+      "title": "Transcripts with the most exons",
+      "rows": 30,
+      "without_indexes_ms": 46.38,
+      "with_indexes_ms": 47.25,
+      "speedup": 0.98,
+      "plan_uses_index": false,
+      "plan_changed": false,
+      "plan_with_indexes": "13 0 225 SCAN t USING INDEX sqlite_autoindex_transcript_1 | 16 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 21 0 63 SEARCH te USING INDEX sqlite_autoindex_transcript_exon_1 (transcript_id=?) LEFT-JOIN | 29 0 0 USE TEMP B-TREE FOR GROUP BY | 89 0 0 USE TEMP B-TREE FOR ORDER BY",
+      "plan_without_indexes": "13 0 225 SCAN t USING INDEX sqlite_autoindex_transcript_1 | 16 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 21 0 63 SEARCH te USING INDEX sqlite_autoindex_transcript_exon_1 (transcript_id=?) LEFT-JOIN | 29 0 0 USE TEMP B-TREE FOR GROUP BY | 89 0 0 USE TEMP B-TREE FOR ORDER BY"
+    },
+    {
+      "query": "Q4",
+      "title": "Genes carrying at least 20 GO terms",
+      "rows": 219,
+      "without_indexes_ms": 3.77,
+      "with_indexes_ms": 4.05,
+      "speedup": 0.93,
+      "plan_uses_index": false,
+      "plan_changed": false,
+      "plan_with_indexes": "9 0 216 SCAN gg | 11 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 16 0 0 USE TEMP B-TREE FOR GROUP BY | 60 0 0 USE TEMP B-TREE FOR count(DISTINCT) | 63 0 0 USE TEMP B-TREE FOR ORDER BY",
+      "plan_without_indexes": "9 0 216 SCAN gg | 11 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 16 0 0 USE TEMP B-TREE FOR GROUP BY | 60 0 0 USE TEMP B-TREE FOR count(DISTINCT) | 63 0 0 USE TEMP B-TREE FOR ORDER BY"
+    },
+    {
+      "query": "Q5",
+      "title": "Annotation depth per GO namespace",
+      "rows": 3,
+      "without_indexes_ms": 4.4,
+      "with_indexes_ms": 4.32,
+      "speedup": 1.02,
+      "plan_uses_index": true,
+      "plan_changed": true,
+      "plan_with_indexes": "10 0 222 SCAN gt USING INDEX idx_go_term_namespace | 13 0 62 SEARCH gg USING INDEX idx_gene_go_term (go_id=?) | 58 0 0 USE TEMP B-TREE FOR count(DISTINCT) | 61 0 0 USE TEMP B-TREE FOR ORDER BY",
+      "plan_without_indexes": "9 0 216 SCAN gg | 11 0 46 SEARCH gt USING INDEX sqlite_autoindex_go_term_1 (go_id=?) | 16 0 0 USE TEMP B-TREE FOR GROUP BY | 64 0 0 USE TEMP B-TREE FOR count(DISTINCT) | 67 0 0 USE TEMP B-TREE FOR ORDER BY"
+    },
+    {
+      "query": "Q6",
+      "title": "Structure of genes carrying a GO term",
+      "rows": 13,
+      "without_indexes_ms": 4.81,
+      "with_indexes_ms": 0.99,
+      "speedup": 4.87,
+      "plan_uses_index": true,
+      "plan_changed": true,
+      "plan_with_indexes": "2 0 0 CO-ROUTINE gene_transcript_exons | 12 2 62 SEARCH gg USING INDEX idx_gene_go_term (go_id=?) | 19 2 62 SEARCH t USING INDEX idx_transcript_gene (gene_id=?) | 24 2 56 SEARCH te USING COVERING INDEX sqlite_autoindex_transcript_exon_1 (transcript_id=?) LEFT-JOIN | 31 2 0 USE TEMP B-TREE FOR GROUP BY | 83 0 82 SCAN gte | 86 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 92 0 0 USE TEMP B-TREE FOR GROUP BY | 142 0 0 USE TEMP B-TREE FOR count(DISTINCT) | 145 0 0 USE TEMP B-TREE FOR ORDER BY",
+      "plan_without_indexes": "2 0 0 CO-ROUTINE gene_transcript_exons | 10 2 216 SCAN gg USING COVERING INDEX sqlite_autoindex_gene_go_1 | 23 2 53 SEARCH t USING AUTOMATIC COVERING INDEX (gene_id=?) | 27 2 56 SEARCH te USING COVERING INDEX sqlite_autoindex_transcript_exon_1 (transcript_id=?) LEFT-JOIN | 34 2 0 USE TEMP B-TREE FOR GROUP BY | 86 0 82 SCAN gte | 89 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 95 0 0 USE TEMP B-TREE FOR GROUP BY | 145 0 0 USE TEMP B-TREE FOR count(DISTINCT) | 148 0 0 USE TEMP B-TREE FOR ORDER BY"
+    },
+    {
+      "query": "Q7",
+      "title": "Exon reuse across transcripts, per gene",
+      "rows": 702,
+      "without_indexes_ms": 65.65,
+      "with_indexes_ms": 63.4,
+      "speedup": 1.04,
+      "plan_uses_index": false,
+      "plan_changed": false,
+      "plan_with_indexes": "2 0 0 CO-ROUTINE gene_exon_usage | 10 2 215 SCAN te USING COVERING INDEX sqlite_autoindex_transcript_exon_1 | 12 2 47 SEARCH t USING INDEX sqlite_autoindex_transcript_1 (transcript_id=?) | 17 2 0 USE TEMP B-TREE FOR GROUP BY | 68 0 82 SCAN geu | 71 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 77 0 0 USE TEMP B-TREE FOR GROUP BY | 129 0 0 USE TEMP B-TREE FOR count(DISTINCT) | 132 0 0 USE TEMP B-TREE FOR ORDER BY",
+      "plan_without_indexes": "2 0 0 CO-ROUTINE gene_exon_usage | 10 2 215 SCAN te USING COVERING INDEX sqlite_autoindex_transcript_exon_1 | 12 2 47 SEARCH t USING INDEX sqlite_autoindex_transcript_1 (transcript_id=?) | 17 2 0 USE TEMP B-TREE FOR GROUP BY | 68 0 82 SCAN geu | 71 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 77 0 0 USE TEMP B-TREE FOR GROUP BY | 129 0 0 USE TEMP B-TREE FOR count(DISTINCT) | 132 0 0 USE TEMP B-TREE FOR ORDER BY"
+    }
+  ]
+}

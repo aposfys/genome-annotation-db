@@ -1,0 +1,101 @@
+name: Pipeline
+
+# CI proves the code is sound; this proves the database still builds. It runs
+# the loader over the real Ensembl exports, executes every query, checks
+# integrity and benchmarks the indexes -- all on SQLite, which needs no server,
+# so the whole thing takes seconds.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/genomedb/**"
+      - "sql/**"
+      - "data/**"
+      - ".github/workflows/pipeline.yml"
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, query and benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Build the database
+        run: python -m genomedb.cli build --results-dir ci-results
+
+      - name: Run every query
+        run: python -m genomedb.cli query --results-dir ci-results
+
+      - name: Integrity checks
+        run: python -m genomedb.cli check --results-dir ci-results
+
+      - name: Benchmark the indexes
+        run: python -m genomedb.cli benchmark --results-dir ci-results --repeats 3
+
+      - name: Check the database is what it should be
+        run: |
+          python - <<'PY'
+          import json, sys
+          from pathlib import Path
+
+          load = json.loads(Path("ci-results/load_report.json").read_text())
+          quality = json.loads(Path("ci-results/quality_report.json").read_text())
+          bench = json.loads(Path("ci-results/benchmark.json").read_text())
+
+          if not quality["all_passed"]:
+              sys.exit(f"integrity checks failed: {quality['failed']}")
+
+          counts = quality["counts"]
+          # Row counts are fixed by the committed exports, so any change means
+          # the loader's behaviour changed rather than the data.
+          expected = {
+              "gene": 769, "transcript": 9950, "exon": 26970,
+              "go_term": 3817, "transcript_exon": 97742, "gene_go": 12596,
+          }
+          for table, want in expected.items():
+              got = counts[table]
+              if got != want:
+                  sys.exit(f"{table}: expected {want} rows, loaded {got}")
+
+          # Rejections are a feature, not a failure, but the number is fixed by
+          # the data and a change means the validation logic moved.
+          if load["total_rejected"] != 6835:
+              sys.exit(f"expected 6,835 rejected rows, got {load['total_rejected']}")
+
+          # A point lookup is the case an index exists for; if that stops paying
+          # off, either the index or the planner's use of it has regressed.
+          q1 = next(q for q in bench["queries"] if q["query"] == "Q1")
+          if not q1["plan_uses_index"]:
+              sys.exit(f"Q1 no longer uses an index: {q1['plan_with_indexes']}")
+
+          print(f"{sum(counts.values()):,} rows across {len(counts)} tables")
+          print(f"Q1 speed-up from indexes: {q1['speedup']}x")
+          print("database built and verified")
+          PY
+
+      - name: Upload outputs for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-results
+          path: ci-results/
+          retention-days: 7
