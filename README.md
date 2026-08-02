@@ -19,7 +19,7 @@ Clone it and you have a working 148,000-row database in under a second. No serve
 
 ## The result: indexes are not a blanket win
 
-`genomedb benchmark` drops every secondary index, times all seven queries, recreates the indexes and times them again. Same data, same queries, only the indexes change. Medians of seven runs:
+`genomedb benchmark` drops every secondary index, times all seven queries, recreates the indexes and times them again. Same data, same queries, only the indexes change. Medians of seven runs on an Apple M4:
 
 | Query | Rows | Without indexes | With indexes | Speed-up | Index used |
 | --- | ---: | ---: | ---: | ---: | --- |
@@ -38,6 +38,8 @@ Q1 and Q6 are *selective*: they find a handful of rows matching one value. Witho
 Q3, Q4 and Q7 aggregate over *every* row. There is nothing to seek to — the query has to visit the whole table either way — so the index adds maintenance cost and returns nothing. Q4 is marginally slower with indexes than without, which is the honest shape of that trade-off.
 
 The lesson generalises: an index earns its keep in proportion to how much of the table it lets you skip. A report that touches everything is not a candidate.
+
+The absolute figures are hardware-dependent — the same benchmark on a GitHub Actions runner gives Q1 a 21× speed-up rather than 48× — but the *shape* is not. Selective queries gain; full aggregations do not. Re-run `make benchmark` and you get your own numbers.
 
 <details>
 <summary>Q1's query plan, before and after</summary>
