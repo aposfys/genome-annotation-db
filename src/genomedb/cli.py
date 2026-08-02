@@ -150,6 +150,30 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
         return 0
 
 
+def _common_options() -> argparse.ArgumentParser:
+    """Options every subcommand accepts.
+
+    Attached to each subparser rather than to the top-level parser, so they can
+    be written after the subcommand -- `genomedb build --results-dir out` --
+    which is the order people reach for. Declaring them only at the top level
+    makes that form an error.
+    """
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--db-url",
+        default=None,
+        help=(
+            "sqlite:///path or mysql://user:password@host/database. "
+            f"Defaults to ${DB_URL_VAR}, then to a local SQLite file."
+        ),
+    )
+    common.add_argument("--sqlite-path", type=Path, default=None)
+    common.add_argument("--sql-dir", type=Path, default=DEFAULT_SQL_DIR)
+    common.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    common.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    return common
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="genomedb",
@@ -158,22 +182,12 @@ def build_parser() -> argparse.ArgumentParser:
             "exports: build it, query it, check it, and measure it."
         ),
     )
-    parser.add_argument(
-        "--db-url",
-        default=None,
-        help=(
-            "sqlite:///path or mysql://user:password@host/database. "
-            f"Defaults to ${DB_URL_VAR}, then to a local SQLite file."
-        ),
-    )
-    parser.add_argument("--sqlite-path", type=Path, default=None)
-    parser.add_argument("--sql-dir", type=Path, default=DEFAULT_SQL_DIR)
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
-
+    common = _common_options()
     sub = parser.add_subparsers(dest="command", required=True)
 
-    build = sub.add_parser("build", help="create the schema and load the data")
+    build = sub.add_parser(
+        "build", parents=[common], help="create the schema and load the data"
+    )
     build.add_argument(
         "--no-indexes",
         action="store_true",
@@ -181,27 +195,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build.set_defaults(func=cmd_build)
 
-    query = sub.add_parser("query", help="run one query, or all of them")
+    query = sub.add_parser("query", parents=[common], help="run one query, or all of them")
     query.add_argument("name", nargs="?", help="Q1..Q7; omit to run every query")
     query.add_argument("--params", nargs="*", help="parameters for the query")
     query.add_argument("--limit", type=int, default=20, help="rows to print")
     query.add_argument("--save", action="store_true", help="also write results/<name>.tsv")
     query.set_defaults(func=cmd_query)
 
-    gene = sub.add_parser("gene", help="transcripts of a gene, by symbol")
+    gene = sub.add_parser("gene", parents=[common], help="transcripts of a gene, by symbol")
     gene.add_argument("gene_name")
     gene.add_argument("--limit", type=int, default=50)
     gene.set_defaults(func=cmd_gene)
 
-    go = sub.add_parser("go", help="genes carrying a GO term")
+    go = sub.add_parser("go", parents=[common], help="genes carrying a GO term")
     go.add_argument("go_id")
     go.add_argument("--limit", type=int, default=50)
     go.set_defaults(func=cmd_go)
 
-    check = sub.add_parser("check", help="run the integrity checks")
+    check = sub.add_parser("check", parents=[common], help="run the integrity checks")
     check.set_defaults(func=cmd_check)
 
-    bench = sub.add_parser("benchmark", help="time the queries with and without indexes")
+    bench = sub.add_parser(
+        "benchmark", parents=[common], help="time the queries with and without indexes"
+    )
     bench.add_argument("--repeats", type=int, default=benchmark.REPEATS)
     bench.set_defaults(func=cmd_benchmark)
 
