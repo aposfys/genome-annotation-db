@@ -1,0 +1,10 @@
+name: genomedb
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.11
+  - bedtools>=2.30   # optional: independent validation of the overlap results
+  - pip
+  - pip:
+      - -e .

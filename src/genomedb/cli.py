@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from . import benchmark, intervals, load, quality, queries, scaling
+from . import benchmark, external, intervals, load, normalisation, quality, queries, scaling
 from .db import DB_URL_VAR, connection
 
 DEFAULT_SQL_DIR = Path("sql")
@@ -245,6 +245,70 @@ def cmd_scaling(args: argparse.Namespace) -> int:
         return 0
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Check the overlap results against bedtools, an independent implementation."""
+    with connection(args.db_url, args.sqlite_path) as conn:
+        intervals.build(conn, args.strategy)
+
+        random_windows = list(intervals.windows(conn, args.windows))
+        boundary = external.boundary_windows(conn, limit=args.boundary_genes)
+
+        report = {}
+        for label, windows in (("random", random_windows), ("boundary", boundary)):
+            comparison = external.validate(conn, windows, strategy=args.strategy)
+            report[label] = comparison.as_dict()
+            status = "agree" if comparison.agrees else "DISAGREE"
+            print(f"{label:9s} windows: {comparison.agreed}/{comparison.windows} {status}")
+            if not comparison.agrees:
+                for window, genes in list(comparison.only_bedtools.items())[:3]:
+                    print(f"    bedtools found {genes} at {window}, we did not")
+                for window, genes in list(comparison.only_ours.items())[:3]:
+                    print(f"    we found {genes} at {window}, bedtools did not")
+
+        _write_json(report, args.results_dir / "bedtools_validation.json")
+        agreed = all(section["agrees"] for section in report.values())
+        print("\nbedtools agreement:", "complete" if agreed else "INCOMPLETE")
+        return 0 if agreed else 1
+
+
+def cmd_normalisation(args: argparse.Namespace) -> int:
+    """Check BCNF, verify the dependencies in the data, and price the trade-off."""
+    bcnf = normalisation.check()
+    print("Boyce-Codd Normal Form:")
+    for name, detail in bcnf["relations"].items():
+        keys = " | ".join("(" + ", ".join(k) + ")" for k in detail["candidate_keys"])
+        status = "BCNF" if detail["in_bcnf"] else "VIOLATION"
+        print(f"  {status:9s} {name:16s} key {keys}")
+    if not bcnf["all_in_bcnf"]:
+        print("  violating:", bcnf["violating_relations"])
+
+    with connection(args.db_url, args.sqlite_path) as conn:
+        holds = normalisation.verify_against_data(conn)
+        print(
+            f"\nDependencies verified against the loaded data: "
+            f"{holds['checked']} checked, "
+            f"{'all hold' if holds['all_hold'] else 'VIOLATIONS: ' + str(holds['violations'])}"
+        )
+
+        denorm = normalisation.measure_denormalisation(conn, repeats=args.repeats)
+        print(f"\nWhat normalisation costs, on {denorm['rows']:,} transcripts:")
+        print(f"  join every time      {denorm['normalised_ms']:>8.3f} ms")
+        print(
+            f"  materialised column  {denorm['denormalised_ms']:>8.3f} ms"
+            f"   ({denorm['speedup']}x faster)"
+        )
+        print(f"  {denorm['trade_off']}")
+
+        _write_json(
+            {"bcnf": bcnf, "dependencies_in_data": holds, "denormalisation": denorm},
+            args.results_dir / "normalisation.json",
+        )
+        (args.results_dir / "normalisation.md").write_text(
+            normalisation.render(bcnf, denorm), encoding="utf-8"
+        )
+        return 0 if bcnf["all_in_bcnf"] and holds["all_hold"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="genomedb",
@@ -325,6 +389,24 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--sizes", type=int, nargs="*", help="table sizes to measure")
     sc.add_argument("--probes", type=int, default=200, help="queries per size")
     sc.set_defaults(func=cmd_scaling)
+
+    va = sub.add_parser(
+        "validate",
+        parents=[common],
+        help="check overlap results against bedtools",
+    )
+    va.add_argument("--windows", type=int, default=200)
+    va.add_argument("--boundary-genes", type=int, default=100)
+    va.add_argument("--strategy", choices=sorted(intervals.BY_NAME), default="btree")
+    va.set_defaults(func=cmd_validate)
+
+    nf = sub.add_parser(
+        "normalisation",
+        parents=[common],
+        help="check BCNF and measure what normalisation costs",
+    )
+    nf.add_argument("--repeats", type=int, default=20)
+    nf.set_defaults(func=cmd_normalisation)
 
     return parser
 

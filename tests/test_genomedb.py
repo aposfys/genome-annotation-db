@@ -397,15 +397,6 @@ def test_all_strategies_return_identical_results(interval_db):
         assert len(set(results.values())) == 1, (chrom, start, end, results)
 
 
-def test_overlap_is_half_open(interval_db):
-    """A feature ending exactly at the window start does not overlap it."""
-    from genomedb import intervals
-
-    # G1 spans 100-900 on chromosome 20.
-    assert intervals.query(interval_db, "btree", "20", 900, 1000) == []
-    assert intervals.query(interval_db, "btree", "20", 899, 1000) != []
-
-
 # --- scaling -----------------------------------------------------------------
 
 
@@ -448,3 +439,151 @@ def test_synthetic_intervals_are_valid_and_reproducible():
     for _identifier, _chrom, start, end in first:
         assert end > start
         assert 0 <= start < scaling.COORDINATE_SPAN
+
+
+# --- coordinate conventions and external validation --------------------------
+
+
+def test_bed_conversion_is_lossless():
+    """1-based inclusive to 0-based half-open and back."""
+    from genomedb import external
+
+    for chrom, start, end in [("20", 87250, 97094), ("21", 1, 1), ("X", 500, 1500)]:
+        assert external.from_bed(*external.to_bed(chrom, start, end)) == (chrom, start, end)
+
+
+def test_bed_conversion_moves_only_the_start():
+    """A 1-based inclusive [87250, 97094] is BED [87249, 97094)."""
+    from genomedb import external
+
+    assert external.to_bed("20", 87250, 97094) == ("20", 87249, 97094)
+
+
+def test_overlap_is_inclusive_not_half_open(interval_db):
+    """Ensembl coordinates are 1-based inclusive.
+
+    A gene ending exactly where a window begins shares one base with it and
+    does overlap. Treating the coordinates as half-open silently drops those,
+    which is the classic genomics off-by-one.
+    """
+    from genomedb import intervals
+
+    # G1 spans 100-900 inclusive on chromosome 20.
+    assert intervals.query(interval_db, "btree", "20", 900, 1000) != []
+    assert intervals.query(interval_db, "btree", "20", 901, 1000) == []
+    assert intervals.query(interval_db, "btree", "20", 50, 100) != []
+    assert intervals.query(interval_db, "btree", "20", 50, 99) == []
+
+
+def test_all_strategies_share_the_inclusive_convention(interval_db):
+    """An off-by-one in the shared predicate would pass the agreement test."""
+    from genomedb import intervals
+
+    for strategy in intervals.STRATEGIES:
+        touching = intervals.query(interval_db, strategy.name, "20", 900, 1000)
+        assert [r[0] for r in touching] == ["G1"], strategy.name
+
+
+# --- normalisation -----------------------------------------------------------
+
+
+def test_every_relation_is_in_bcnf():
+    from genomedb import normalisation
+
+    result = normalisation.check()
+    assert result["all_in_bcnf"], result["violating_relations"]
+
+
+def test_a_non_superkey_determinant_is_caught():
+    """The check must be capable of failing, or it proves nothing."""
+    from genomedb.normalisation import Dependency, Relation
+
+    # chrom -> biotype is not implied by any key: a violation by construction.
+    broken = Relation(
+        name="broken",
+        attributes=("gene_id", "chrom", "biotype"),
+        candidate_keys=(("gene_id",),),
+        dependencies=(Dependency("broken", ("chrom",), ("biotype",)),),
+    )
+    assert not broken.in_bcnf
+    assert len(broken.violations()) == 1
+
+
+def test_trivial_dependencies_do_not_violate_bcnf():
+    from genomedb.normalisation import Dependency, Relation
+
+    trivial = Relation(
+        name="t",
+        attributes=("a", "b"),
+        candidate_keys=(("a",),),
+        dependencies=(Dependency("t", ("a", "b"), ("b",)),),
+    )
+    assert trivial.in_bcnf
+
+
+def test_exon_rank_depends_on_the_whole_composite_key():
+    """The same exon can be ranked differently in different transcripts, so
+    rank is a property of the pairing, not of the exon."""
+    from genomedb import normalisation
+
+    junction = next(r for r in normalisation.SCHEMA if r.name == "transcript_exon")
+    assert junction.candidate_keys == (("transcript_id", "exon_id"),)
+    assert junction.in_bcnf
+
+
+def test_declared_dependencies_hold_in_the_data(tiny_db):
+    from genomedb import normalisation
+
+    conn, _ = tiny_db
+    result = normalisation.verify_against_data(conn)
+    assert result["all_hold"], result["violations"]
+
+
+def test_denormalisation_measures_a_real_trade_off(tiny_db):
+    from genomedb import normalisation
+
+    conn, _ = tiny_db
+    result = normalisation.measure_denormalisation(conn, repeats=3)
+    assert result["rows"] > 0
+    assert result["rows_disagreeing_now"] == 0
+    assert result["normalised_ms"] > 0 and result["denormalised_ms"] > 0
+
+
+@pytest.mark.skipif(
+    __import__("shutil").which("bedtools") is None, reason="bedtools not installed"
+)
+def test_agrees_with_bedtools_on_boundary_windows(interval_db):
+    """The check that caught the off-by-one.
+
+    Boundary windows sit exactly on a gene's first and last base, which is
+    where a coordinate-convention error has to show. Random windows agreed even
+    while the bug was present.
+    """
+    from genomedb import external
+
+    windows = external.boundary_windows(interval_db, limit=3)
+    comparison = external.validate(interval_db, windows)
+    assert comparison.agrees, (
+        comparison.only_ours,
+        comparison.only_bedtools,
+    )
+
+
+@pytest.mark.skipif(
+    __import__("shutil").which("bedtools") is None, reason="bedtools not installed"
+)
+def test_the_bedtools_check_can_actually_fail(interval_db, monkeypatch):
+    """A validation never seen to fail is not yet a validation.
+
+    Reverting the inclusive comparison to the half-open one must make bedtools
+    disagree; if it does not, the check has no power.
+    """
+    from genomedb import external, intervals
+
+    monkeypatch.setattr(
+        intervals,
+        "BTREE_SQL",
+        intervals.BTREE_SQL.replace("<= ?", "< ?").replace(">= ?", "> ?"),
+    )
+    windows = external.boundary_windows(interval_db, limit=3)
+    assert not external.validate(interval_db, windows).agrees

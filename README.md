@@ -17,6 +17,7 @@ Clone it and you have a working 148,000-row database in under a second. No serve
 | **Engines** | SQLite by default; the same schema and queries run on MySQL 8 |
 | **Headline** | Indexes buy **48×** on a point lookup and **nothing** on four of seven queries |
 | **Also** | An R\*Tree beats a B-tree 14× on interval search — then loses 16× once the joins around it are counted |
+| **Validated** | Overlap results agree with `bedtools` on 600/600 windows, including 400 placed on gene boundaries |
 
 ## The result: indexes are not a blanket win
 
@@ -101,6 +102,59 @@ Two things follow, and neither is visible from a single benchmark:
 
 So a schema with no explicit indexes is already indexed on its join columns under MySQL, and does full scans for the identical joins under SQLite. A design that performs acceptably on one engine can be unusable on the other, and nothing in the DDL hints at it. Every index this schema relies on is therefore declared explicitly in [`sql/indexes.sql`](sql/indexes.sql) rather than left to the engine.
 
+## Validation against bedtools — and the bug it found
+
+The three interval strategies are checked against each other, which catches a mistake in any one of them but **not a mistake they share**. A coordinate-convention error is exactly that kind: all three read the same columns and apply the same comparison, so all three would agree and all three would be wrong.
+
+[bedtools](https://bedtools.readthedocs.io/) is the standard toolkit for genomic interval arithmetic and an entirely independent implementation. Agreeing with it is evidence; agreeing with yourself is not.
+
+```bash
+make validate
+```
+
+| Windows | Agreement |
+| --- | --- |
+| 200 random | **200 / 200** |
+| 400 placed exactly on gene boundaries | **400 / 400** |
+
+**Setting this up found a real off-by-one.** Ensembl coordinates are **1-based inclusive** — `DEFB125` spans 87,250–97,094, which is 9,845 bases. The overlap predicate was written with strict `<` and `>`, the *half-open* rule. A gene ending exactly where a window starts shares one base with it and does overlap, and every strategy was silently excluding those.
+
+The fix is `<=` and `>=`, plus an explicit conversion when exporting to BED, which really is 0-based half-open: a 1-based `[87250, 97094]` becomes BED `[87249, 97094)` — the start moves back one, the end does not.
+
+Two details make the check worth trusting:
+
+- **The boundary windows are deliberate.** Random windows essentially never land on a gene edge, so they cannot detect this class of bug — the 200 random windows agreed even *before* the fix. The 400 boundary windows place each query exactly on a gene's first and last base, where an off-by-one has to show.
+- **The check was verified to be capable of failing.** Reintroducing the strict comparison makes it fail on **200 of 400** boundary windows. A validation that has never been seen to fail is not yet a validation.
+
+## Normalisation: proved, then priced
+
+`make normalisation` states the functional dependencies, checks Boyce-Codd Normal Form against them mechanically, and confirms the dependencies actually hold in the loaded data.
+
+| Relation | Candidate key | BCNF |
+| --- | --- | --- |
+| `gene` | (gene_id) | yes |
+| `transcript` | (transcript_id) | yes |
+| `exon` | (exon_id) | yes |
+| `go_term` | (go_id) | yes |
+| `transcript_exon` | (transcript_id, exon_id) | yes |
+| `gene_go` | (gene_id, go_id) | yes |
+
+BCNF holds when every non-trivial dependency has a superkey on its left-hand side. Here each table's dependencies are keyed on its primary key, which makes the argument short — and `gene_go` is an all-key relation with no non-key attribute to depend on anything.
+
+The interesting case is `transcript_exon`. `exon_rank` depends on the **whole** composite key, not on `exon_id` alone: the same exon can be third in one transcript and first in another. Had rank been stored on `exon`, the schema would have been wrong in a way that only shows up on alternatively spliced genes.
+
+### What that property costs
+
+Counting a transcript's exons means joining the junction table every time. Materialising the count removes the join:
+
+| | 9,950 transcripts |
+| --- | ---: |
+| Join every time (normalised) | 8.51 ms |
+| Materialised column | 1.94 ms |
+| | **4.4× faster** |
+
+So normalisation costs about 6.6 ms on this query. What it buys is that the answer cannot be wrong: nothing in the schema can keep a materialised count true, and any write to `transcript_exon` that forgets to update it leaves the two disagreeing — a constraint cannot express that dependency. The 4.4× is the price of that guarantee, stated rather than assumed.
+
 ## Empirical complexity, not a single measurement
 
 `genomedb scaling` times a point lookup across a geometric series of table sizes and classifies the growth by comparing what was *observed* against what each candidate law *predicts* over that range — O(n) predicts a 256-fold rise from 1k to 256k rows, O(log n) about 1.8-fold, O(1) none.
@@ -143,6 +197,8 @@ make check       # integrity and consistency checks
 make benchmark   # time the queries with and without indexes
 make intervals   # B-tree vs UCSC binning vs R*Tree on overlap queries
 make scaling     # growth of query cost with table size
+make validate    # cross-check overlap results against bedtools
+make normalisation  # BCNF check and the cost of normalisation
 make test
 ```
 
@@ -221,12 +277,14 @@ src/genomedb/
   queries.py    Query registry, runner and TSV output
   quality.py    Integrity and consistency checks
   intervals.py  UCSC binning, R*Tree and B-tree overlap strategies
+  external.py   bedtools cross-validation and BED coordinate conversion
+  normalisation.py  Functional dependencies, BCNF check, denormalisation cost
   scaling.py    Growth measurement and growth-law classification
   benchmark.py  Index timing and query-plan capture
   cli.py        Subcommands: build, query, gene, go, check, benchmark
 data/           Ensembl BioMart exports, gzipped (1.7 MB)
 results/        Query output, load report, quality report, benchmark
-tests/          pytest suite (35 tests)
+tests/          pytest suite (44 tests)
 ```
 
 ## Data sources and licences
@@ -237,6 +295,7 @@ The MIT licence covers the code in this repository only.
 | --- | --- | --- |
 | [Ensembl / BioMart](https://www.ensembl.org/info/about/legal/disclaimer.html) | Gene, transcript, exon and GO annotation for human chr20–21 | No restrictions on use; EMBL-EBI terms |
 | [Gene Ontology](http://geneontology.org/docs/go-citation-policy/) | GO term names and namespaces, via BioMart | CC BY 4.0 |
+| [bedtools](https://github.com/arq5x/bedtools2) | Independent validation of the overlap results (optional) | MIT |
 
 **What this repository ships.** `data/` contains three unmodified BioMart exports, gzipped, so the database builds offline and reproducibly. Everything in `results/` is generated from them by the code here. If you reuse these results, cite Ensembl and the Gene Ontology as well.
 

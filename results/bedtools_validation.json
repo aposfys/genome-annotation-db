@@ -1,0 +1,18 @@
+{
+  "random": {
+    "windows": 200,
+    "agreed": 200,
+    "agreement_rate": 1.0,
+    "windows_where_only_we_found_a_gene": {},
+    "windows_where_only_bedtools_found_a_gene": {},
+    "agrees": true
+  },
+  "boundary": {
+    "windows": 400,
+    "agreed": 400,
+    "agreement_rate": 1.0,
+    "windows_where_only_we_found_a_gene": {},
+    "windows_where_only_bedtools_found_a_gene": {},
+    "agrees": true
+  }
+}

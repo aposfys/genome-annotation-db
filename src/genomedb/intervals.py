@@ -4,6 +4,15 @@ The defining query in genome annotation is *what overlaps this region?* Two
 intervals [a1, a2] and [b1, b2] overlap when ``a1 <= b2 AND a2 >= b1``, and that
 conjunction is what makes the query hard to index.
 
+**Coordinates here are 1-based and inclusive**, because that is what Ensembl
+exports and what a user typing a locus from the genome browser expects. The
+overlap test is therefore ``<=`` and ``>=``, not ``<`` and ``>``: a gene ending
+exactly where a window starts shares one base with it and does overlap. BED and
+most command-line tooling use 0-based half-open coordinates instead, so
+:func:`to_bed` converts on the way out. Getting that boundary wrong is the
+classic genomics off-by-one, and it is invisible until something external
+disagrees.
+
 A B-tree on ``(chrom, gene_start)`` can seek to the first candidate by start
 position, but it cannot bound the *end*: a gene beginning far to the left may
 still extend into the query window, so the engine has to keep reading. The
@@ -177,12 +186,12 @@ def build(conn: Connection, strategy: str) -> None:
 
 # --- querying ----------------------------------------------------------------
 
-# Half-open convention throughout: [start, end). Two intervals overlap when each
-# begins before the other ends.
+# Inclusive convention throughout: [start, end], matching Ensembl. Two intervals
+# overlap when each begins at or before the other ends.
 BTREE_SQL = """
 SELECT gene_id, gene_name, gene_start, gene_end
 FROM gene
-WHERE chrom = ? AND gene_start < ? AND gene_end > ?
+WHERE chrom = ? AND gene_start <= ? AND gene_end >= ?
 ORDER BY gene_start
 """
 
@@ -191,7 +200,7 @@ SELECT m.gene_id, g.gene_name, r.min_start, r.max_end
 FROM gene_rtree AS r
 JOIN gene_rtree_map AS m ON m.id = r.id
 JOIN gene AS g ON g.gene_id = m.gene_id
-WHERE r.min_start < ? AND r.max_end > ? AND m.chrom = ?
+WHERE r.min_start <= ? AND r.max_end >= ? AND m.chrom = ?
 ORDER BY r.min_start
 """
 
@@ -203,7 +212,7 @@ SELECT b.gene_id, g.gene_name, b.gene_start, b.gene_end
 FROM gene_bin AS b
 JOIN gene AS g ON g.gene_id = b.gene_id
 WHERE b.chrom = ? AND b.bin IN ({placeholders})
-  AND b.gene_start < ? AND b.gene_end > ?
+  AND b.gene_start <= ? AND b.gene_end >= ?
 ORDER BY b.gene_start
 """
 

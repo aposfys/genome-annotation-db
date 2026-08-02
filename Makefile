@@ -38,3 +38,11 @@ intervals:
 ## Measure how query cost grows with table size
 scaling:
 	$(PYTHON) -m genomedb.cli scaling
+
+## Cross-check the overlap results against bedtools
+validate:
+	$(PYTHON) -m genomedb.cli validate
+
+## Check BCNF and measure the cost of normalisation
+normalisation:
+	$(PYTHON) -m genomedb.cli normalisation
