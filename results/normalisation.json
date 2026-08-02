@@ -89,8 +89,8 @@
   },
   "denormalisation": {
     "rows": 9950,
-    "normalised_ms": 8.507,
-    "denormalised_ms": 1.943,
+    "normalised_ms": 8.547,
+    "denormalised_ms": 1.933,
     "speedup": 4.4,
     "rows_disagreeing_now": 0,
     "trade_off": "The materialised column answers without the join, but nothing in the schema keeps it true: any write to transcript_exon that does not also update it leaves the two disagreeing, and no constraint can express that."
