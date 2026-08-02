@@ -7,4 +7,4 @@
 | `transcript_exon` | (transcript_id, exon_id) | 1 | yes |
 | `gene_go` | (gene_id, go_id) | 0 | yes |
 
-Normalised aggregate: 8.507 ms · materialised column: 1.943 ms · **4.4× faster**
+Normalised aggregate: 8.547 ms · materialised column: 1.933 ms · **4.4× faster**

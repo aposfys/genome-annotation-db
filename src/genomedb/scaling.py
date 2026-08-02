@@ -155,7 +155,6 @@ def _create_synthetic(conn: Connection, rows: list[tuple[int, str, int, int]]) -
 
 
 POINT_LOOKUP = "SELECT id FROM synthetic WHERE span_start = ?"
-RANGE_OVERLAP = "SELECT id FROM synthetic WHERE chrom = ? AND span_start < ? AND span_end > ?"
 
 
 def measure_point_lookups(
@@ -219,6 +218,10 @@ def measure_interval_strategies(
     """
     from . import intervals
 
+    # The same inclusive convention as intervals.py. Over a 250 Mb span a random
+    # window practically never lands on an interval boundary, so this does not
+    # move the timings -- but two modules teaching different conventions is how
+    # the wrong one gets copied.
     rng = random.Random(11)
     timings: dict[str, list[float]] = {"btree": [], "binning": [], "rtree": []}
 
@@ -263,11 +266,11 @@ def measure_interval_strategies(
         plans = {
             "btree": (
                 "SELECT id FROM synthetic WHERE chrom='chrS'"
-                " AND span_start < ? AND span_end > ?",
+                " AND span_start <= ? AND span_end >= ?",
                 lambda s, e: (e, s),
             ),
             "rtree": (
-                "SELECT id FROM synthetic_rtree WHERE min_start < ? AND max_end > ?",
+                "SELECT id FROM synthetic_rtree WHERE min_start <= ? AND max_end >= ?",
                 lambda s, e: (e, s),
             ),
         }
@@ -284,7 +287,7 @@ def measure_interval_strategies(
             placeholders = ", ".join("?" for _ in bins)
             conn.query(
                 f"SELECT id FROM synthetic_bin WHERE bin IN ({placeholders})"
-                " AND span_start < ? AND span_end > ?",
+                " AND span_start <= ? AND span_end >= ?",
                 (*bins, e, s),
             )
         timings["binning"].append((time.perf_counter() - start_time) / probes)

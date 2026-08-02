@@ -587,3 +587,23 @@ def test_the_bedtools_check_can_actually_fail(interval_db, monkeypatch):
     )
     windows = external.boundary_windows(interval_db, limit=3)
     assert not external.validate(interval_db, windows).agrees
+
+
+def test_no_module_uses_the_half_open_convention_on_coordinates():
+    """One convention across the codebase.
+
+    The overlap predicate is inclusive because Ensembl coordinates are 1-based
+    inclusive. A module that quietly uses `<` and `>` on the same columns is
+    either a bug or a lesson someone will copy.
+    """
+    import re
+
+    source_dir = Path(__file__).resolve().parents[1] / "src" / "genomedb"
+    pattern = re.compile(r"(span_start|gene_start|min_start)\s*<\s*\?")
+
+    offenders = [
+        path.name
+        for path in source_dir.glob("*.py")
+        if pattern.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, f"half-open comparison on coordinates in: {offenders}"
