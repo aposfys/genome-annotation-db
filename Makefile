@@ -30,3 +30,11 @@ clean:
 	rm -f data/genome.sqlite
 	rm -rf results/*.tsv results/*.json results/*.md
 	find . -name __pycache__ -type d -exec rm -rf {} +
+
+## Compare B-tree, UCSC binning and R*Tree on interval overlap queries
+intervals:
+	$(PYTHON) -m genomedb.cli intervals
+
+## Measure how query cost grows with table size
+scaling:
+	$(PYTHON) -m genomedb.cli scaling

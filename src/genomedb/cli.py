@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from . import benchmark, load, quality, queries
+from . import benchmark, intervals, load, quality, queries, scaling
 from .db import DB_URL_VAR, connection
 
 DEFAULT_SQL_DIR = Path("sql")
@@ -174,6 +174,77 @@ def _common_options() -> argparse.ArgumentParser:
     return common
 
 
+def cmd_region(args: argparse.Namespace) -> int:
+    """Genes overlapping a genomic window."""
+    with connection(args.db_url, args.sqlite_path) as conn:
+        if args.strategy != "btree":
+            intervals.build(conn, args.strategy)
+        rows = intervals.query(conn, args.strategy, args.chrom, args.start, args.end)
+        print(
+            f"# {args.chrom}:{args.start:,}-{args.end:,}  "
+            f"({len(rows)} genes, via {args.strategy})"
+        )
+        _print_table(["gene_id", "gene_name", "gene_start", "gene_end"], rows, args.limit)
+        return 0
+
+
+def cmd_intervals(args: argparse.Namespace) -> int:
+    """Benchmark the three interval-indexing strategies against each other."""
+    with connection(args.db_url, args.sqlite_path) as conn:
+        results, summary = benchmark.compare_intervals(
+            conn, window_count=args.windows, width=args.width, repeats=args.repeats
+        )
+        print()
+        print(benchmark.render_intervals(results))
+        if not summary["strategies_agree"]:
+            print("WARNING: strategies disagree:", summary["disagreements"])
+        print(
+            f"Fastest: {summary['fastest']}  "
+            f"(speed-up over B-tree: {summary['speedup_over_btree']})"
+        )
+
+        _write_json(
+            {"summary": summary, "strategies": [r.as_dict() for r in results]},
+            args.results_dir / "intervals.json",
+        )
+        (args.results_dir / "intervals.md").write_text(
+            benchmark.render_intervals(results), encoding="utf-8"
+        )
+        return 0 if summary["strategies_agree"] else 1
+
+
+def cmd_scaling(args: argparse.Namespace) -> int:
+    """Measure how query cost grows with table size, and fit the growth law."""
+    sizes = tuple(args.sizes) if args.sizes else scaling.DEFAULT_SIZES
+    with connection(args.db_url, args.sqlite_path) as conn:
+        print("Point lookup, with and without an index:")
+        point = scaling.measure_point_lookups(conn, sizes, probes=args.probes)
+        ug, ig = point["unindexed_growth"], point["indexed_growth"]
+        print(
+            f"  unindexed: {ug['verdict']}"
+            f"  (linear R2 {ug['linear']['r_squared']:.3f},"
+            f" grew {ug['growth_factor']}x)"
+        )
+        print(
+            f"  indexed:   {ig['verdict']}"
+            f"  (grew only {ig['growth_factor']}x over the same range)"
+        )
+
+        print("\nInterval overlap, three structures:")
+        interval = scaling.measure_interval_strategies(conn, sizes, probes=args.probes)
+        print(f"  crossover at n = {interval['crossover_n']}")
+
+        _write_json(
+            {"point_lookup": point, "intervals": interval},
+            args.results_dir / "scaling.json",
+        )
+        (args.results_dir / "scaling.md").write_text(
+            scaling.render(point, interval), encoding="utf-8"
+        )
+        print(f"\nWritten to {args.results_dir}/scaling.json")
+        return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="genomedb",
@@ -220,6 +291,40 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bench.add_argument("--repeats", type=int, default=benchmark.REPEATS)
     bench.set_defaults(func=cmd_benchmark)
+
+    region = sub.add_parser(
+        "region", parents=[common], help="genes overlapping a genomic window"
+    )
+    region.add_argument("chrom")
+    region.add_argument("start", type=int)
+    region.add_argument("end", type=int)
+    region.add_argument(
+        "--strategy",
+        choices=sorted(intervals.BY_NAME),
+        default="btree",
+        help="which interval index to answer through. Default: btree.",
+    )
+    region.add_argument("--limit", type=int, default=50)
+    region.set_defaults(func=cmd_region)
+
+    iv = sub.add_parser(
+        "intervals",
+        parents=[common],
+        help="benchmark B-tree vs UCSC binning vs R*Tree on overlap queries",
+    )
+    iv.add_argument("--windows", type=int, default=200)
+    iv.add_argument("--width", type=int, default=1_000_000, help="window size in bp")
+    iv.add_argument("--repeats", type=int, default=3)
+    iv.set_defaults(func=cmd_intervals)
+
+    sc = sub.add_parser(
+        "scaling",
+        parents=[common],
+        help="measure how query cost grows with table size",
+    )
+    sc.add_argument("--sizes", type=int, nargs="*", help="table sizes to measure")
+    sc.add_argument("--probes", type=int, default=200, help="queries per size")
+    sc.set_defaults(func=cmd_scaling)
 
     return parser
 

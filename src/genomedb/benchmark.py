@@ -192,3 +192,123 @@ def render(comparisons: Sequence[Comparison]) -> str:
         for c in comparisons
     )
     return header + body
+
+
+# --- interval strategies -----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class IntervalResult:
+    """How one interval strategy performed over a set of query windows."""
+
+    strategy: str
+    description: str
+    windows: int
+    total_seconds: float
+    rows_returned: int
+    plan: str
+
+    @property
+    def per_query_ms(self) -> float:
+        return (self.total_seconds / self.windows) * 1000 if self.windows else 0.0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "strategy": self.strategy,
+            "description": self.description,
+            "windows": self.windows,
+            "per_query_ms": round(self.per_query_ms, 4),
+            "total_ms": round(self.total_seconds * 1000, 2),
+            "rows_returned": self.rows_returned,
+            "plan": self.plan,
+        }
+
+
+def compare_intervals(
+    conn: Connection,
+    window_count: int = 200,
+    width: int = 1_000_000,
+    repeats: int = 3,
+) -> tuple[list[IntervalResult], dict[str, Any]]:
+    """Time each interval strategy over the same set of random windows.
+
+    Correctness is checked before timing: a faster structure that returns
+    different rows is not a faster structure.
+    """
+    from . import intervals
+
+    available = [
+        s for s in intervals.STRATEGIES if not s.requires_sqlite or conn.backend.is_sqlite
+    ]
+    query_windows = list(intervals.windows(conn, window_count, width))
+
+    for strategy in available:
+        intervals.build(conn, strategy.name)
+
+    # Every strategy must agree with the baseline, window for window.
+    baseline = {
+        (chrom, start, end): intervals.query(conn, "btree", chrom, start, end)
+        for chrom, start, end in query_windows
+    }
+    disagreements: list[str] = []
+    for strategy in available[1:]:
+        for (chrom, start, end), expected in baseline.items():
+            got = intervals.query(conn, strategy.name, chrom, start, end)
+            if [row[0] for row in got] != [row[0] for row in expected]:
+                disagreements.append(f"{strategy.name} at {chrom}:{start}-{end}")
+
+    results: list[IntervalResult] = []
+    for strategy in available:
+        elapsed = 0.0
+        returned = 0
+        for _ in range(repeats):
+            start_time = time.perf_counter()
+            for chrom, start, end in query_windows:
+                returned += len(intervals.query(conn, strategy.name, chrom, start, end))
+            elapsed += time.perf_counter() - start_time
+
+        sample = query_windows[0]
+        results.append(
+            IntervalResult(
+                strategy=strategy.name,
+                description=strategy.description,
+                windows=len(query_windows) * repeats,
+                total_seconds=elapsed,
+                rows_returned=returned,
+                plan=intervals.plan(conn, strategy.name, *sample),
+            )
+        )
+
+    fastest = min(results, key=lambda r: r.per_query_ms)
+    summary = {
+        "windows": len(query_windows),
+        "window_width_bp": width,
+        "repeats": repeats,
+        "strategies_agree": not disagreements,
+        "disagreements": disagreements[:5],
+        "fastest": fastest.strategy,
+        "region_stats": intervals.region_stats(conn),
+        "speedup_over_btree": {
+            r.strategy: round(
+                next(x for x in results if x.strategy == "btree").per_query_ms
+                / r.per_query_ms,
+                2,
+            )
+            for r in results
+            if r.per_query_ms > 0
+        },
+    }
+    return results, summary
+
+
+def render_intervals(results: Sequence[IntervalResult]) -> str:
+    header = (
+        "| Strategy | Per query | Total | Rows | Structure |\n"
+        "| --- | ---: | ---: | ---: | --- |\n"
+    )
+    body = "".join(
+        f"| {r.strategy} | {r.per_query_ms:.3f} ms | {r.total_seconds * 1000:,.0f} ms "
+        f"| {r.rows_returned:,} | {r.description} |\n"
+        for r in results
+    )
+    return header + body
