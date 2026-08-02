@@ -311,3 +311,32 @@ def test_all_three_go_namespaces_are_present():
     with (RESULTS_DIR / "Q5.tsv").open(encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
     assert {row["go_namespace"] for row in rows} == {"BP", "MF", "CC"}
+
+
+# --- CLI argument handling ---------------------------------------------------
+
+
+def test_shared_options_are_accepted_after_the_subcommand():
+    """`genomedb build --results-dir out` must parse.
+
+    Declaring the shared options only on the top-level parser makes that an
+    error and forces `genomedb --results-dir out build`, which is not the order
+    anyone reaches for. A CI run caught exactly that.
+    """
+    from genomedb.cli import build_parser
+
+    parser = build_parser()
+    for command in ("build", "query", "check", "benchmark", "gene X", "go GO:1"):
+        argv = [*command.split(), "--results-dir", "out", "--sql-dir", "sql"]
+        args = parser.parse_args(argv)
+        assert str(args.results_dir) == "out"
+        assert str(args.sql_dir) == "sql"
+
+
+def test_every_subcommand_binds_a_handler():
+    from genomedb.cli import build_parser
+
+    parser = build_parser()
+    for command in ("build", "query", "check", "benchmark", "gene X", "go GO:1"):
+        args = parser.parse_args(command.split())
+        assert callable(args.func), command
