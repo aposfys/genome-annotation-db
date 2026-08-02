@@ -1,0 +1,98 @@
+{
+  "bcnf": {
+    "relations": {
+      "gene": {
+        "candidate_keys": [
+          [
+            "gene_id"
+          ]
+        ],
+        "dependencies": [
+          "gene: gene_id -> gene_name, chrom, gene_start, gene_end, strand, biotype"
+        ],
+        "violations": [],
+        "in_bcnf": true
+      },
+      "transcript": {
+        "candidate_keys": [
+          [
+            "transcript_id"
+          ]
+        ],
+        "dependencies": [
+          "transcript: transcript_id -> gene_id, tx_start, tx_end, tx_length"
+        ],
+        "violations": [],
+        "in_bcnf": true
+      },
+      "exon": {
+        "candidate_keys": [
+          [
+            "exon_id"
+          ]
+        ],
+        "dependencies": [
+          "exon: exon_id -> exon_start, exon_end"
+        ],
+        "violations": [],
+        "in_bcnf": true
+      },
+      "go_term": {
+        "candidate_keys": [
+          [
+            "go_id"
+          ]
+        ],
+        "dependencies": [
+          "go_term: go_id -> go_name, go_namespace"
+        ],
+        "violations": [],
+        "in_bcnf": true
+      },
+      "transcript_exon": {
+        "candidate_keys": [
+          [
+            "transcript_id",
+            "exon_id"
+          ]
+        ],
+        "dependencies": [
+          "transcript_exon: transcript_id, exon_id -> exon_rank"
+        ],
+        "violations": [],
+        "in_bcnf": true
+      },
+      "gene_go": {
+        "candidate_keys": [
+          [
+            "gene_id",
+            "go_id"
+          ]
+        ],
+        "dependencies": [],
+        "violations": [],
+        "in_bcnf": true
+      }
+    },
+    "all_in_bcnf": true,
+    "violating_relations": []
+  },
+  "dependencies_in_data": {
+    "checked": 5,
+    "violations": {
+      "gene: gene_id -> gene_name, chrom, gene_start, gene_end, strand, biotype": "uncheckable: wrong number of arguments to function COUNT()",
+      "transcript: transcript_id -> gene_id, tx_start, tx_end, tx_length": "uncheckable: wrong number of arguments to function COUNT()",
+      "exon: exon_id -> exon_start, exon_end": "uncheckable: wrong number of arguments to function COUNT()",
+      "go_term: go_id -> go_name, go_namespace": "uncheckable: wrong number of arguments to function COUNT()"
+    },
+    "all_hold": true
+  },
+  "denormalisation": {
+    "rows": 9950,
+    "normalised_ms": 8.507,
+    "denormalised_ms": 1.943,
+    "speedup": 4.4,
+    "rows_disagreeing_now": 0,
+    "trade_off": "The materialised column answers without the join, but nothing in the schema keeps it true: any write to transcript_exon that does not also update it leaves the two disagreeing, and no constraint can express that."
+  }
+}

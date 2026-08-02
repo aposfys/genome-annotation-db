@@ -34,6 +34,12 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Install bedtools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bedtools
+          bedtools --version
+
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -51,8 +57,14 @@ jobs:
       - name: Benchmark the indexes
         run: python -m genomedb.cli benchmark --results-dir ci-results --repeats 3
 
+      - name: Cross-validate against bedtools
+        run: python -m genomedb.cli validate --results-dir ci-results
+
       - name: Compare the interval structures
         run: python -m genomedb.cli intervals --results-dir ci-results --windows 100
+
+      - name: Check normalisation and its cost
+        run: python -m genomedb.cli normalisation --results-dir ci-results
 
       - name: Measure how cost scales
         run: |
@@ -107,7 +119,24 @@ jobs:
           unindexed = sc["point_lookup"]["unindexed_growth"]["verdict"]
           if unindexed != "O(n)":
               sys.exit(f"unindexed lookup classified as {unindexed}, expected O(n)")
+          # Every relation must stay in BCNF, and the declared dependencies
+          # must still hold in the data that was just loaded.
+          nf = json.loads(Path("ci-results/normalisation.json").read_text())
+          if not nf["bcnf"]["all_in_bcnf"]:
+              sys.exit(f"BCNF violated: {nf['bcnf']['violating_relations']}")
+          if not nf["dependencies_in_data"]["all_hold"]:
+              sys.exit(f"dependencies violated: {nf['dependencies_in_data']['violations']}")
+
           print(f"interval strategies agree; unindexed scan is {unindexed}")
+          # Independent agreement with bedtools, including on the boundary
+          # windows where a coordinate off-by-one has to show.
+          bt = json.loads(Path("ci-results/bedtools_validation.json").read_text())
+          for kind, section in bt.items():
+              if not section["agrees"]:
+                  sys.exit(f"bedtools disagrees on {kind} windows: {section}")
+
+          print("all relations in BCNF; declared dependencies hold")
+          print(f"bedtools agrees on {bt['boundary']['windows']} boundary windows")
 
           print(f"{sum(counts.values()):,} rows across {len(counts)} tables")
           print(f"Q1 speed-up from indexes: {q1['speedup']}x")
