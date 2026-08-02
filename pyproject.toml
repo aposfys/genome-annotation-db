@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genomedb"
+version = "1.0.0"
+description = "A relational genome annotation database over Ensembl BioMart exports, with an index benchmark"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Apostolos Fysekidis" }]
+keywords = ["bioinformatics", "sql", "database", "sqlite", "mysql", "ensembl", "genome-annotation", "indexing"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+# The default backend is SQLite, which is in the standard library, so the core
+# package has no third-party dependencies at all.
+dependencies = []
+
+[project.optional-dependencies]
+mysql = ["mysql-connector-python>=8.0"]
+dev = ["pytest>=7.0", "ruff>=0.6", "mypy>=1.11"]
+
+[project.scripts]
+genomedb = "genomedb.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 95
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501", "B008", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011", "SIM117"]
+
+[tool.mypy]
+# No python_version pin: mypy follows the interpreter running it, so the
+# CI matrix checks each supported version against its own dependency stubs.
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+exclude = ["^tests/"]

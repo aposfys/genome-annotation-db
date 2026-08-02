@@ -1,0 +1,77 @@
+{
+  "counts": {
+    "gene": 769,
+    "transcript": 9950,
+    "exon": 26970,
+    "go_term": 3817,
+    "transcript_exon": 97742,
+    "gene_go": 12596
+  },
+  "checks": [
+    {
+      "check": "orphan_transcripts",
+      "description": "transcripts whose gene is missing",
+      "expected": 0,
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "check": "orphan_transcript_exon",
+      "description": "junction rows pointing at a missing transcript or exon",
+      "expected": 0,
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "check": "orphan_gene_go",
+      "description": "GO assignments pointing at a missing gene or term",
+      "expected": 0,
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "check": "invalid_go_namespace",
+      "description": "GO terms outside the three namespaces",
+      "expected": 0,
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "check": "invalid_strand",
+      "description": "genes with a strand other than +1 or -1",
+      "expected": 0,
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "check": "inverted_gene_spans",
+      "description": "genes whose end precedes their start",
+      "expected": 0,
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "check": "transcripts_outside_gene_span",
+      "description": "transcripts extending beyond their gene's annotated span",
+      "expected": 0,
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "check": "transcripts_without_exons",
+      "description": "transcripts with no exons recorded",
+      "expected": 0,
+      "observed": 0,
+      "passed": true
+    },
+    {
+      "check": "non_contiguous_exon_ranks",
+      "description": "transcripts whose exon ranks are not 1..n",
+      "expected": 0,
+      "observed": 0,
+      "passed": true
+    }
+  ],
+  "all_passed": true,
+  "failed": []
+}

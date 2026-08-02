@@ -1,0 +1,4 @@
+go_namespace	n_genes	total_annotations	avg_go_per_gene
+CC	728	3602	4.95
+MF	701	3356	4.79
+BP	639	5638	8.82
