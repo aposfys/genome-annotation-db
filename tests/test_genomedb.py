@@ -340,3 +340,111 @@ def test_every_subcommand_binds_a_handler():
     for command in ("build", "query", "check", "benchmark", "gene X", "go GO:1"):
         args = parser.parse_args(command.split())
         assert callable(args.func), command
+
+
+# --- interval structures -----------------------------------------------------
+
+
+def test_bin_assignment_contains_the_interval():
+    """An interval's own bin must be among the bins a query for it searches."""
+    from genomedb import intervals
+
+    for start, end in [
+        (0, 1000),
+        (100_000, 200_000),
+        (1_000_000, 1_000_100),
+        (0, 200_000_000),
+    ]:
+        assigned = intervals.assign_bin(start, end)
+        assert assigned in intervals.overlapping_bins(start, end)
+
+
+def test_larger_intervals_land_in_coarser_bins():
+    """The scheme's whole point: a feature too big for a fine bin moves up."""
+    from genomedb import intervals
+
+    small = intervals.assign_bin(1_000_000, 1_000_100)
+    huge = intervals.assign_bin(0, 200_000_000)
+    assert huge < small  # coarser levels have lower bin numbers
+
+
+def test_a_query_touches_few_bins():
+    from genomedb import intervals
+
+    assert len(intervals.overlapping_bins(1_000_000, 2_000_000)) < 20
+
+
+@pytest.fixture
+def interval_db(tiny_db):
+    from genomedb import intervals
+
+    conn, _ = tiny_db
+    for strategy in intervals.STRATEGIES:
+        intervals.build(conn, strategy.name)
+    return conn
+
+
+def test_all_strategies_return_identical_results(interval_db):
+    """A faster structure that returns different rows is not a faster structure."""
+    from genomedb import intervals
+
+    windows = [("20", 0, 1000), ("20", 150, 450), ("21", 0, 1000), ("20", 5000, 6000)]
+    for chrom, start, end in windows:
+        results = {}
+        for strategy in intervals.STRATEGIES:
+            rows = intervals.query(interval_db, strategy.name, chrom, start, end)
+            results[strategy.name] = tuple(row[0] for row in rows)
+        assert len(set(results.values())) == 1, (chrom, start, end, results)
+
+
+def test_overlap_is_half_open(interval_db):
+    """A feature ending exactly at the window start does not overlap it."""
+    from genomedb import intervals
+
+    # G1 spans 100-900 on chromosome 20.
+    assert intervals.query(interval_db, "btree", "20", 900, 1000) == []
+    assert intervals.query(interval_db, "btree", "20", 899, 1000) != []
+
+
+# --- scaling -----------------------------------------------------------------
+
+
+def test_a_flat_response_is_not_classified_as_a_growth_law():
+    """Fitting a law to noise is the failure mode this guards against."""
+    from genomedb import scaling
+
+    sizes = [1_000, 4_000, 16_000, 64_000, 256_000]
+    flat = [7.0, 7.3, 7.2, 7.5, 8.0]
+    assert scaling.classify(sizes, flat)["verdict"] == "O(1)"
+
+
+def test_linear_growth_is_recognised():
+    from genomedb import scaling
+
+    sizes = [1_000, 4_000, 16_000, 64_000, 256_000]
+    linear = [float(s) for s in sizes]
+    result = scaling.classify(sizes, linear)
+    assert result["verdict"] == "O(n)"
+    assert result["linear"]["r_squared"] > 0.99
+
+
+def test_logarithmic_growth_is_recognised():
+    import math
+
+    from genomedb import scaling
+
+    sizes = [1_000, 4_000, 16_000, 64_000, 256_000]
+    logarithmic = [math.log2(s) for s in sizes]
+    result = scaling.classify(sizes, logarithmic)
+    assert result["verdict"] == "O(log n)"
+
+
+def test_synthetic_intervals_are_valid_and_reproducible():
+    from genomedb import scaling
+
+    first = scaling.synthesise(500)
+    assert first == scaling.synthesise(500)
+    assert len(first) == 500
+    for _identifier, _chrom, start, end in first:
+        assert end > start
+        assert 0 <= start < scaling.COORDINATE_SPAN

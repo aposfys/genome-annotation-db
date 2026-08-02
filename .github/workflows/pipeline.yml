@@ -51,6 +51,14 @@ jobs:
       - name: Benchmark the indexes
         run: python -m genomedb.cli benchmark --results-dir ci-results --repeats 3
 
+      - name: Compare the interval structures
+        run: python -m genomedb.cli intervals --results-dir ci-results --windows 100
+
+      - name: Measure how cost scales
+        run: |
+          python -m genomedb.cli scaling --results-dir ci-results \
+            --sizes 1000 4000 16000 --probes 50
+
       - name: Check the database is what it should be
         run: |
           python - <<'PY'
@@ -86,6 +94,20 @@ jobs:
           q1 = next(q for q in bench["queries"] if q["query"] == "Q1")
           if not q1["plan_uses_index"]:
               sys.exit(f"Q1 no longer uses an index: {q1['plan_with_indexes']}")
+
+          # Every interval structure must return the same rows. A faster
+          # structure that disagrees is not a faster structure.
+          iv = json.loads(Path("ci-results/intervals.json").read_text())
+          if not iv["summary"]["strategies_agree"]:
+              sys.exit(f"interval strategies disagree: {iv['summary']['disagreements']}")
+
+          # An unindexed scan must still look linear; if it does not, the
+          # measurement harness has broken rather than the database improved.
+          sc = json.loads(Path("ci-results/scaling.json").read_text())
+          unindexed = sc["point_lookup"]["unindexed_growth"]["verdict"]
+          if unindexed != "O(n)":
+              sys.exit(f"unindexed lookup classified as {unindexed}, expected O(n)")
+          print(f"interval strategies agree; unindexed scan is {unindexed}")
 
           print(f"{sum(counts.values()):,} rows across {len(counts)} tables")
           print(f"Q1 speed-up from indexes: {q1['speedup']}x")

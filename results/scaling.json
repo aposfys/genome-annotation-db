@@ -1,0 +1,194 @@
+{
+  "point_lookup": {
+    "sizes": [
+      1000,
+      4000,
+      16000,
+      64000,
+      256000
+    ],
+    "unindexed_us": [
+      37.438,
+      128.549,
+      496.118,
+      1986.133,
+      9649.022
+    ],
+    "indexed_us": [
+      7.247,
+      7.106,
+      7.497,
+      7.305,
+      8.172
+    ],
+    "speedup": [
+      5.17,
+      18.09,
+      66.17,
+      271.89,
+      1180.71
+    ],
+    "unindexed_growth": {
+      "linear": {
+        "model": "O(n)",
+        "slope": 0.0,
+        "intercept": -0.000124,
+        "r_squared": 0.9981
+      },
+      "logarithmic": {
+        "model": "O(log n)",
+        "slope": 0.001054,
+        "intercept": -0.012261,
+        "r_squared": 0.6626
+      },
+      "best_fit": "O(n)",
+      "observed_growth": 257.74,
+      "predicted_growth": {
+        "O(1)": 1.0,
+        "O(log n)": 1.8,
+        "O(n)": 256.0
+      },
+      "verdict": "O(n)",
+      "decisive": true,
+      "growth_factor": 257.74
+    },
+    "indexed_growth": {
+      "linear": {
+        "model": "O(n)",
+        "slope": 0.0,
+        "intercept": 7e-06,
+        "r_squared": 0.876
+      },
+      "logarithmic": {
+        "model": "O(log n)",
+        "slope": 0.0,
+        "intercept": 6e-06,
+        "r_squared": 0.5974
+      },
+      "best_fit": "O(n)",
+      "observed_growth": 1.15,
+      "predicted_growth": {
+        "O(1)": 1.0,
+        "O(log n)": 1.8,
+        "O(n)": 256.0
+      },
+      "verdict": "O(1)",
+      "decisive": true,
+      "growth_factor": 1.15
+    }
+  },
+  "intervals": {
+    "sizes": [
+      1000,
+      4000,
+      16000,
+      64000,
+      256000
+    ],
+    "per_query_us": {
+      "btree": [
+        26.9,
+        80.99,
+        352.7,
+        1359.84,
+        6170.97
+      ],
+      "binning": [
+        18.74,
+        29.99,
+        74.7,
+        288.35,
+        2406.84
+      ],
+      "rtree": [
+        10.28,
+        15.52,
+        32.75,
+        106.3,
+        443.3
+      ]
+    },
+    "winner_by_size": {
+      "1000": "rtree",
+      "4000": "rtree",
+      "16000": "rtree",
+      "64000": "rtree",
+      "256000": "rtree"
+    },
+    "crossover_n": null,
+    "growth": {
+      "btree": {
+        "linear": {
+          "model": "O(n)",
+          "slope": 0.0,
+          "intercept": -5.1e-05,
+          "r_squared": 0.9991
+        },
+        "logarithmic": {
+          "model": "O(log n)",
+          "slope": 0.000678,
+          "intercept": -0.007875,
+          "r_squared": 0.6745
+        },
+        "best_fit": "O(n)",
+        "observed_growth": 229.43,
+        "predicted_growth": {
+          "O(1)": 1.0,
+          "O(log n)": 1.8,
+          "O(n)": 256.0
+        },
+        "verdict": "O(n)",
+        "decisive": true,
+        "growth_factor": 229.43
+      },
+      "binning": {
+        "linear": {
+          "model": "O(n)",
+          "slope": 0.0,
+          "intercept": -8.5e-05,
+          "r_squared": 0.9829
+        },
+        "logarithmic": {
+          "model": "O(log n)",
+          "slope": 0.000252,
+          "intercept": -0.002952,
+          "r_squared": 0.5903
+        },
+        "best_fit": "O(n)",
+        "observed_growth": 128.43,
+        "predicted_growth": {
+          "O(1)": 1.0,
+          "O(log n)": 1.8,
+          "O(n)": 256.0
+        },
+        "verdict": "O(n)",
+        "decisive": true,
+        "growth_factor": 128.43
+      },
+      "rtree": {
+        "linear": {
+          "model": "O(n)",
+          "slope": 0.0,
+          "intercept": 6e-06,
+          "r_squared": 0.9993
+        },
+        "logarithmic": {
+          "model": "O(log n)",
+          "slope": 4.8e-05,
+          "intercept": -0.000547,
+          "r_squared": 0.6768
+        },
+        "best_fit": "O(n)",
+        "observed_growth": 43.14,
+        "predicted_growth": {
+          "O(1)": 1.0,
+          "O(log n)": 1.8,
+          "O(n)": 256.0
+        },
+        "verdict": "O(n)",
+        "decisive": true,
+        "growth_factor": 43.14
+      }
+    }
+  }
+}
