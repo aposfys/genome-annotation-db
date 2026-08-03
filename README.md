@@ -12,36 +12,36 @@ Clone it and you have a working 148,000-row database in under a second. No serve
 
 | | |
 | --- | --- |
-| **Data** | Ensembl BioMart, human chromosomes 20 and 21 |
+| **Data** | Ensembl BioMart release 113, human chromosomes 20 and 21; whole-genome gene set for the scaling study |
 | **Scale** | 769 genes · 9,950 transcripts · 26,970 exons · 97,742 transcript–exon links · 12,596 GO assignments |
 | **Engines** | SQLite by default; the same schema and queries run on MySQL 8 |
 | **Headline** | Indexes buy **48×** on a point lookup and **nothing** on four of seven queries |
-| **Also** | An R\*Tree beats a B-tree 14× on interval search — then loses 16× once the joins around it are counted |
+| **Also** | An R\*Tree beats a B-tree 80× on interval search — then loses 16× once the joins around it are counted |
 | **Validated** | Overlap results agree with `bedtools` on 600/600 windows, including 400 placed on gene boundaries |
 
 ## The result: indexes are not a blanket win
 
-`genomedb benchmark` drops every secondary index, times all seven queries, recreates the indexes and times them again. Same data, same queries, only the indexes change. Medians of seven runs on an Apple M4:
+`genomedb benchmark` drops every secondary index, times all seven queries, recreates the indexes and times them again. Same data, same queries, only the indexes change.
 
-| Query | Rows | Without indexes | With indexes | Speed-up | Index used |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Q1 — Transcripts of a named gene | 2 | 1.1 ms | 0.02 ms | **47.1×** | yes |
-| Q2 — Most heavily transcribed genes | 20 | 5.6 ms | 3.3 ms | 1.7× | yes |
-| Q3 — Transcripts with the most exons | 30 | 46.4 ms | 47.3 ms | 1.0× | no |
-| Q4 — Genes carrying ≥ 20 GO terms | 219 | 3.8 ms | 4.1 ms | 0.9× | no |
-| Q5 — Annotation depth per GO namespace | 3 | 4.4 ms | 4.3 ms | 1.0× | yes |
-| Q6 — Structure of genes carrying a GO term | 13 | 4.8 ms | 1.0 ms | **4.9×** | yes |
-| Q7 — Exon reuse across transcripts | 702 | 65.7 ms | 63.4 ms | 1.0× | no |
+Two figures are reported. Wall-clock time is what a user feels, but it depends on the machine. **VM steps — the virtual-machine instructions SQLite executes — measure the work the query actually does, and are identical on any hardware**, so the work ratio is the number that reproduces.
 
-**The split is entirely predictable once you look at the query plans**, which the benchmark captures alongside the timings.
+| Query | Rows | Wall time | Speed-up | VM steps (without → with) | Work ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Q1 — Transcripts of a named gene | 2 | 1.2 → 0.02 ms | 46× | 59,746 → **61** | **979×** |
+| Q2 — Most heavily transcribed genes | 20 | 6.9 → 3.4 ms | 2.0× | 281,488 → 230,199 | 1.2× |
+| Q3 — Transcripts with the most exons | 30 | 50.0 → 47.6 ms | 1.0× | 2,810,638 → 2,810,638 | **1.0×** |
+| Q4 — Genes carrying ≥ 20 GO terms | 219 | 3.9 → 3.8 ms | 1.0× | 290,146 → 290,146 | **1.0×** |
+| Q5 — Annotation depth per GO namespace | 3 | 4.5 → 4.4 ms | 1.0× | 258,238 → 176,553 | 1.5× |
+| Q6 — Structure of genes carrying a GO term | 13 | 4.9 → 1.0 ms | 5.1× | 176,706 → 79,462 | 2.2× |
+| Q7 — Exon reuse across transcripts | 702 | 66.6 → 58.5 ms | 1.1× | 3,394,126 → 3,394,126 | **1.0×** |
 
-Q1 and Q6 are *selective*: they find a handful of rows matching one value. Without an index the planner scans a whole table; with one it seeks straight to the match. Q1's plan goes from `SCAN t` to `SEARCH g USING INDEX idx_gene_name (gene_name=?)`, and 1.1 ms becomes 0.02 ms.
+The VM counts say more than the clock does.
 
-Q3, Q4 and Q7 aggregate over *every* row. There is nothing to seek to — the query has to visit the whole table either way — so the index adds maintenance cost and returns nothing. Q4 is marginally slower with indexes than without, which is the honest shape of that trade-off.
+**Q1's real gain is 979×, not 46×.** The wall-clock figure is floored by fixed per-query overhead — parsing, planning, returning rows — which the index cannot remove. Strip that away and the index eliminates 99.9% of the work.
 
-The lesson generalises: an index earns its keep in proportion to how much of the table it lets you skip. A report that touches everything is not a candidate.
+**Q3, Q4 and Q7 execute a byte-identical number of instructions with and without indexes.** That is not "we measured no difference"; it is proof the plan did not change. These queries aggregate over every row, so there is nothing for an index to skip, and Q4 is marginally *slower* with them — the honest shape of that trade-off.
 
-The absolute figures are hardware-dependent — the same benchmark on a GitHub Actions runner gives Q1 a 21× speed-up rather than 48× — but the *shape* is not. Selective queries gain; full aggregations do not. Re-run `make benchmark` and you get your own numbers.
+An index earns its keep in proportion to how much of the table it lets you skip. A report that touches everything is not a candidate.
 
 <details>
 <summary>Q1's query plan, before and after</summary>
@@ -65,17 +65,7 @@ genomedb intervals --windows 300
 
 ### How they scale
 
-Measured on synthetic intervals drawn from a realistic log-normal length distribution, since the real chromosomes cannot supply the sizes:
-
-| n intervals | B-tree scan | UCSC binning | R\*Tree | Fastest |
-| ---: | ---: | ---: | ---: | --- |
-| 1,000 | 26.9 µs | 18.7 µs | **10.3 µs** | R\*Tree |
-| 4,000 | 81.0 µs | 30.0 µs | **15.5 µs** | R\*Tree |
-| 16,000 | 352.7 µs | 74.7 µs | **32.7 µs** | R\*Tree |
-| 64,000 | 1,359.8 µs | 288.4 µs | **106.3 µs** | R\*Tree |
-| 256,000 | 6,171.0 µs | 2,406.8 µs | **443.3 µs** | R\*Tree |
-
-The B-tree degrades linearly, as predicted — it is scanning. Binning is roughly 2.5× better. The R\*Tree is **14× faster than the B-tree at 256,000 intervals**, and its lead widens with n.
+Measured on real gene coordinates up to the whole genome — see [Empirical complexity](#empirical-complexity-on-real-coordinates) for the full table. The B-tree grows 63-fold across the range while binning and the R\*Tree grow 2.5-fold, leaving the R\*Tree **80× faster at 78,733 genes**.
 
 ### The result that matters
 
@@ -155,22 +145,42 @@ Counting a transcript's exons means joining the junction table every time. Mater
 
 So normalisation costs about 6.6 ms on this query. What it buys is that the answer cannot be wrong: nothing in the schema can keep a materialised count true, and any write to `transcript_exon` that forgets to update it leaves the two disagreeing — a constraint cannot express that dependency. The 4.4× is the price of that guarantee, stated rather than assumed.
 
-## Empirical complexity, not a single measurement
+## Empirical complexity, on real coordinates
 
-`genomedb scaling` times a point lookup across a geometric series of table sizes and classifies the growth by comparing what was *observed* against what each candidate law *predicts* over that range — O(n) predicts a 256-fold rise from 1k to 256k rows, O(log n) about 1.8-fold, O(1) none.
+`genomedb scaling` measures how cost grows across a geometric series of table sizes, using **real gene coordinates — every gene in the human genome, 78,733 of them**, subsampled to each size. Chromosomes 20 and 21 hold only 769 genes between them, which is why an earlier version generated intervals instead; the whole genome supplies two orders of magnitude more, with the clustering and heavy-tailed length distribution that decide how much a bounding structure can actually prune.
 
-| n rows | Unindexed | Indexed | Speed-up |
+Growth is classified by comparing observed growth against what each law *predicts* over the range, rather than by picking whichever least-squares fit scores higher — with five points a fit always names a winner, including in noise.
+
+### Point lookup
+
+| n genes | Unindexed | Indexed | Speed-up |
 | ---: | ---: | ---: | ---: |
-| 1,000 | 37.4 µs | 7.1 µs | 5.3× |
-| 4,000 | 128.5 µs | 7.1 µs | 18.1× |
-| 16,000 | 496.1 µs | 7.5 µs | 66.2× |
-| 64,000 | 1,986.1 µs | 7.3 µs | 271.9× |
-| 256,000 | 9,649.0 µs | 8.2 µs | **1,180.7×** |
+| 1,000 | 17.7 µs | 3.6 µs | 4.9× |
+| 4,000 | 54.0 µs | 3.7 µs | 14.4× |
+| 16,000 | 195.6 µs | 3.8 µs | 51.5× |
+| 64,000 | 781.7 µs | 4.2 µs | 185.2× |
+| 78,733 | 1,179.4 µs | 3.9 µs | **305.4×** |
 
-- **Unindexed: O(n).** Grew 258-fold across a 256-fold increase in rows — the textbook scan, with a linear fit at R² = 0.998.
-- **Indexed: O(1) over this range.** Grew 1.15-fold. A B-tree seek is O(log n) in theory, but from 1k to 256k rows that predicts only a 1.8-fold rise, and the observed 1.15 is nearer to flat. The honest statement is that the measurement cannot separate O(log n) from O(1) here, not that logarithmic growth was disproved.
+- **Unindexed: O(n).** Linear fit at R² = 1.000.
+- **Indexed: indeterminate — and that is the honest answer.** It grew 1.16× across a 79-fold increase in rows. O(log n) predicts 1.58× over that range and O(1) predicts 1.0; 1.16 sits between them, too close to either to call. The classifier says so rather than picking one.
 
-That second point is why the classifier compares against predicted growth rather than picking whichever least-squares fit scores a higher R². With five points a fit will always name a winner, including for a response that is really flat and noisy — and it did, calling a 1.2-fold rise "linear", before the method was changed.
+### Interval overlap, three structures
+
+| n genes | B-tree scan | UCSC binning | R\*Tree |
+| ---: | ---: | ---: | ---: |
+| 1,000 | 14.1 µs | 8.2 µs | **4.4 µs** |
+| 4,000 | 46.9 µs | 9.0 µs | **5.0 µs** |
+| 16,000 | 190.4 µs | 10.6 µs | **5.9 µs** |
+| 64,000 | 742.9 µs | 19.7 µs | **10.2 µs** |
+| 78,733 | 885.4 µs | 20.7 µs | **11.1 µs** |
+
+The B-tree grows 63-fold across the range; binning and the R\*Tree grow 2.5-fold. **At every gene in the genome the R\*Tree answers 80× faster than the B-tree**, and the gap widens with n — which is the whole argument for a structure that can bound both ends of an interval rather than only one.
+
+### A ceiling the classic scheme has
+
+Running this genome-wide exposed a real property of UCSC binning: **the classic five-level scheme reaches only 2²⁹ = 512 Mb.** The human genome is 3.1 Gb, so laying the chromosomes end to end onto one axis overflows it. That is exactly why UCSC applies the scheme per chromosome — the longest human chromosome is 249 Mb, so one always fits and a genome never does.
+
+The repository implements both the classic scheme and UCSC's extended six-level form (2³² = 4.3 Gb), and picks the narrowest that holds the data. The scheme is chosen **once per dataset, not per interval**: a small feature binned under the classic offsets is invisible to a query using extended ones, because the two numberings do not correspond. A test asserts that failure mode directly.
 
 ## The schema
 
@@ -200,6 +210,8 @@ make scaling     # growth of query cost with table size
 make validate    # cross-check overlap results against bedtools
 make normalisation  # BCNF check and the cost of normalisation
 make test
+
+genomedb fetch   # regenerate the Ensembl exports at the pinned release
 ```
 
 Ad-hoc lookups:
@@ -241,9 +253,9 @@ Nine integrity checks then run against the loaded database: orphan rows in each 
 
 The foreign-key check is not redundant, incidentally: **SQLite accepts `PRAGMA foreign_keys = OFF` silently**, and a database loaded that way looks fine until something reads it. A test asserts the constraints are actually enforced.
 
-## A discrepancy worth recording
+## The discrepancy, explained
 
-The rebuilt database reports GO annotation across all three namespaces:
+An earlier result file for the GO namespace query contains a single row — biological process only, 769 genes, 13,939 annotations. The rebuilt database reports all three namespaces:
 
 | Namespace | Genes | Annotations | Mean per gene |
 | --- | ---: | ---: | ---: |
@@ -251,9 +263,19 @@ The rebuilt database reports GO annotation across all three namespaces:
 | Cellular component | 728 | 3,602 | 4.95 |
 | Molecular function | 701 | 3,356 | 4.79 |
 
-These figures reconcile exactly with an independent recount of the source export — 12,596 distinct gene–GO pairs, confirmed outside the loader entirely. The earlier result file for this query contained a single row, biological process only, with 13,939 annotations: more BP annotations alone than there are distinct pairs in the data shipped alongside it.
+Rather than leave that unexplained, the old numbers were reproduced from the shipped export. **Ignoring the GO domain entirely — collapsing every term into one namespace — gives 757 genes and 13,437 annotations**, against the original's 769 and 13,939. That is within 1.6% and 3.6%, and it reproduces the *shape* exactly: one namespace, essentially every gene, and an annotation count larger than the 12,596 distinct gene–term pairs the data actually contains.
 
-I could not reproduce that from these inputs and have not guessed at a cause; the most likely explanation is that those results were produced against a database loaded from a different snapshot. It is recorded here because a result set that cannot be regenerated from its stated inputs is worth flagging rather than quietly replacing.
+So there were two causes, not one:
+
+- **The namespace was collapsed.** Respecting the GO domain gives 12,596 pairs across three namespaces; ignoring it gives 13,437 in one. The original is the second shape.
+- **The source export was slightly larger.** The residual — 12 genes and 502 annotations — is what remains after the logic is accounted for, and is consistent with the original having been loaded from a marginally different download.
+
+The second half is why `genomedb fetch` exists. The exports were originally produced by hand through the BioMart web interface, so there was no way to tell whether a disagreement came from the code or the data. The queries are now in [`biomart.py`](src/genomedb/biomart.py), pinned to **Ensembl release 113** through the archive URL, and any export can be regenerated byte-for-byte:
+
+```bash
+genomedb fetch                      # all four exports, pinned release
+genomedb fetch --export genes_all   # just the whole-genome gene set
+```
 
 ## Design decisions
 
@@ -276,7 +298,8 @@ src/genomedb/
   load.py       Validating ETL with rejection reporting
   queries.py    Query registry, runner and TSV output
   quality.py    Integrity and consistency checks
-  intervals.py  UCSC binning, R*Tree and B-tree overlap strategies
+  biomart.py    Pinned Ensembl queries, so every export can be regenerated
+  intervals.py  UCSC binning (classic and extended), R*Tree, B-tree
   external.py   bedtools cross-validation and BED coordinate conversion
   normalisation.py  Functional dependencies, BCNF check, denormalisation cost
   scaling.py    Growth measurement and growth-law classification
@@ -284,7 +307,7 @@ src/genomedb/
   cli.py        Subcommands: build, query, gene, go, check, benchmark
 data/           Ensembl BioMart exports, gzipped (1.7 MB)
 results/        Query output, load report, quality report, benchmark
-tests/          pytest suite (44 tests)
+tests/          pytest suite (55 tests)
 ```
 
 ## Data sources and licences

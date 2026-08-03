@@ -607,3 +607,106 @@ def test_no_module_uses_the_half_open_convention_on_coordinates():
         if pattern.search(path.read_text(encoding="utf-8"))
     ]
     assert not offenders, f"half-open comparison on coordinates in: {offenders}"
+
+
+# --- binning schemes ---------------------------------------------------------
+
+
+def test_the_classic_scheme_cannot_hold_a_genome():
+    """UCSC's five-level scheme reaches 512 Mb, which is why it is applied per
+    chromosome: the longest human chromosome fits, a whole genome never does."""
+    from genomedb import intervals
+
+    assert intervals.BIN_RANGE == 536_870_912
+    assert intervals.scheme_for(200_000_000) is intervals.BIN_OFFSETS
+    assert intervals.scheme_for(3_000_000_000) is intervals.BIN_OFFSETS_EXTENDED
+
+
+def test_a_coordinate_beyond_every_scheme_is_refused():
+    from genomedb import intervals
+
+    with pytest.raises(ValueError, match="exceeds even the extended"):
+        intervals.scheme_for(intervals.BIN_RANGE_EXTENDED + 1)
+
+
+def test_bins_round_trip_under_both_schemes():
+    """An interval's own bin must appear in the set a query for it searches."""
+    import random
+
+    from genomedb import intervals
+
+    for ceiling in (500_000_000, 3_000_000_000):
+        scheme = intervals.scheme_for(ceiling)
+        rng = random.Random(1)
+        for _ in range(2000):
+            start = rng.randrange(0, ceiling)
+            end = start + rng.randrange(1, 2_000_000)
+            assert intervals.assign_bin(start, end, scheme) in intervals.overlapping_bins(
+                start, end, scheme
+            )
+
+
+def test_mixing_schemes_would_lose_the_interval():
+    """Why the scheme is fixed per dataset rather than per interval.
+
+    A small interval binned under the classic scheme is not found by a query
+    using extended offsets: the two numberings do not correspond.
+    """
+    from genomedb import intervals
+
+    start, end = 1_000_000, 1_000_100
+    classic = intervals.assign_bin(start, end, intervals.BIN_OFFSETS)
+    extended_query = intervals.overlapping_bins(start, end, intervals.BIN_OFFSETS_EXTENDED)
+    assert classic not in extended_query
+
+
+# --- hardware-independent measurement ----------------------------------------
+
+
+def test_vm_step_counts_are_deterministic(tiny_db):
+    """Wall time depends on the machine; VM steps do not."""
+    conn, _ = tiny_db
+    sql = "SELECT gene_id FROM gene WHERE gene_name = ?"
+    conn.count_vm_steps(sql, ("AAA",))  # warm the page cache
+    counts = {conn.count_vm_steps(sql, ("AAA",)) for _ in range(4)}
+    assert len(counts) == 1, f"VM step counts varied: {counts}"
+    assert counts.pop() > 0
+
+
+def test_vm_steps_are_unavailable_rather_than_faked_on_other_backends():
+    from genomedb.db import MYSQL, Connection
+
+    class _Fake:
+        def cursor(self):  # pragma: no cover - never reached
+            raise AssertionError
+
+    assert Connection(_Fake(), MYSQL).count_vm_steps("SELECT 1") == -1
+
+
+# --- real interval data ------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not (DATA_DIR / "genes_all.tsv.gz").exists(), reason="whole-genome export missing"
+)
+def test_real_intervals_are_projected_onto_one_axis():
+    """Chromosome coordinates restart at 1, so a position alone is ambiguous."""
+    from genomedb import scaling
+
+    rows = scaling.load_real_intervals(DATA_DIR, 5000)
+    assert len({chrom for _, chrom, _, _ in rows}) == 1
+    assert all(end > start for _, _, start, end in rows)
+    assert max(end for *_, end in rows) > 2_000_000_000
+
+
+@pytest.mark.skipif(
+    not (DATA_DIR / "genes_all.tsv.gz").exists(), reason="whole-genome export missing"
+)
+def test_sizes_beyond_the_real_data_are_reported_not_faked():
+    """Asking for more genes than exist must not silently return fewer."""
+    from genomedb import scaling
+
+    sizes, available = scaling.usable_sizes([1000, 10_000, 10_000_000], DATA_DIR)
+    assert available is not None
+    assert 10_000_000 not in sizes
+    assert max(sizes) == available

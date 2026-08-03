@@ -5,76 +5,76 @@
       4000,
       16000,
       64000,
-      256000
+      78733
     ],
     "unindexed_us": [
-      19.82,
-      68.118,
-      260.728,
-      1040.374,
-      4930.815
+      17.714,
+      53.996,
+      195.597,
+      781.727,
+      1179.379
     ],
     "indexed_us": [
-      3.774,
-      4.278,
-      3.746,
-      3.772,
-      3.84
+      3.641,
+      3.744,
+      3.797,
+      4.221,
+      3.862
     ],
     "speedup": [
-      5.25,
-      15.92,
-      69.59,
-      275.8,
-      1284.16
+      4.87,
+      14.42,
+      51.51,
+      185.22,
+      305.41
     ],
     "unindexed_growth": {
       "linear": {
         "model": "O(n)",
         "slope": 0.0,
-        "intercept": -5.5e-05,
-        "r_squared": 0.9985
+        "intercept": -1.5e-05,
+        "r_squared": 0.9819
       },
       "logarithmic": {
         "model": "O(log n)",
-        "slope": 0.00054,
-        "intercept": -0.006274,
-        "r_squared": 0.6666
+        "slope": 0.000169,
+        "intercept": -0.001858,
+        "r_squared": 0.7814
       },
       "best_fit": "O(n)",
-      "observed_growth": 248.78,
+      "observed_growth": 66.58,
       "predicted_growth": {
         "O(1)": 1.0,
-        "O(log n)": 1.8,
-        "O(n)": 256.0
+        "O(log n)": 1.63,
+        "O(n)": 78.73
       },
       "verdict": "O(n)",
       "decisive": true,
-      "growth_factor": 248.78
+      "growth_factor": 66.58
     },
     "indexed_growth": {
       "linear": {
         "model": "O(n)",
-        "slope": -0.0,
+        "slope": 0.0,
         "intercept": 4e-06,
-        "r_squared": 0.0368
+        "r_squared": 0.5065
       },
       "logarithmic": {
         "model": "O(log n)",
-        "slope": -0.0,
-        "intercept": 4e-06,
-        "r_squared": 0.0697
+        "slope": 0.0,
+        "intercept": 3e-06,
+        "r_squared": 0.5921
       },
       "best_fit": "O(log n)",
-      "observed_growth": 1.14,
+      "observed_growth": 1.16,
       "predicted_growth": {
         "O(1)": 1.0,
-        "O(log n)": 1.8,
-        "O(n)": 256.0
+        "O(log n)": 1.63,
+        "O(n)": 78.73
       },
-      "verdict": "O(1)",
-      "decisive": true,
-      "growth_factor": 1.14
+      "verdict": "indeterminate",
+      "decisive": false,
+      "growth_factor": 1.16
     }
   },
   "intervals": {
@@ -83,29 +83,29 @@
       4000,
       16000,
       64000,
-      256000
+      78733
     ],
     "per_query_us": {
       "btree": [
-        14.96,
-        44.69,
-        175.86,
-        690.94,
-        3178.12
+        14.13,
+        46.88,
+        190.42,
+        742.91,
+        885.37
       ],
       "binning": [
-        9.98,
-        15.93,
-        38.48,
-        152.74,
-        1195.11
+        8.22,
+        8.95,
+        10.6,
+        19.74,
+        20.66
       ],
       "rtree": [
-        5.43,
-        7.84,
-        15.03,
-        49.85,
-        184.28
+        4.41,
+        5.04,
+        5.86,
+        10.2,
+        11.05
       ]
     },
     "winner_by_size": {
@@ -113,7 +113,7 @@
       "4000": "rtree",
       "16000": "rtree",
       "64000": "rtree",
-      "256000": "rtree"
+      "78733": "rtree"
     },
     "crossover_n": null,
     "growth": {
@@ -121,73 +121,73 @@
         "linear": {
           "model": "O(n)",
           "slope": 0.0,
-          "intercept": -2.8e-05,
-          "r_squared": 0.9989
+          "intercept": 5e-06,
+          "r_squared": 0.9995
         },
         "logarithmic": {
           "model": "O(log n)",
-          "slope": 0.000349,
-          "intercept": -0.004048,
-          "r_squared": 0.6714
+          "slope": 0.00014,
+          "intercept": -0.001528,
+          "r_squared": 0.839
         },
         "best_fit": "O(n)",
-        "observed_growth": 212.5,
+        "observed_growth": 62.66,
         "predicted_growth": {
           "O(1)": 1.0,
-          "O(log n)": 1.8,
-          "O(n)": 256.0
+          "O(log n)": 1.63,
+          "O(n)": 78.73
         },
         "verdict": "O(n)",
         "decisive": true,
-        "growth_factor": 212.5
+        "growth_factor": 62.66
       },
       "binning": {
         "linear": {
           "model": "O(n)",
           "slope": 0.0,
-          "intercept": -3.9e-05,
-          "r_squared": 0.9847
+          "intercept": 8e-06,
+          "r_squared": 0.9912
         },
         "logarithmic": {
           "model": "O(log n)",
-          "slope": 0.000125,
-          "intercept": -0.001468,
-          "r_squared": 0.596
+          "slope": 2e-06,
+          "intercept": -1.5e-05,
+          "r_squared": 0.8355
         },
         "best_fit": "O(n)",
-        "observed_growth": 119.74,
+        "observed_growth": 2.51,
         "predicted_growth": {
           "O(1)": 1.0,
-          "O(log n)": 1.8,
-          "O(n)": 256.0
+          "O(log n)": 1.63,
+          "O(n)": 78.73
         },
-        "verdict": "O(n)",
+        "verdict": "O(log n)",
         "decisive": true,
-        "growth_factor": 119.74
+        "growth_factor": 2.51
       },
       "rtree": {
         "linear": {
           "model": "O(n)",
           "slope": 0.0,
           "intercept": 5e-06,
-          "r_squared": 1.0
+          "r_squared": 0.996
         },
         "logarithmic": {
           "model": "O(log n)",
-          "slope": 2e-05,
-          "intercept": -0.000227,
-          "r_squared": 0.695
+          "slope": 1e-06,
+          "intercept": -7e-06,
+          "r_squared": 0.8531
         },
         "best_fit": "O(n)",
-        "observed_growth": 33.92,
+        "observed_growth": 2.5,
         "predicted_growth": {
           "O(1)": 1.0,
-          "O(log n)": 1.8,
-          "O(n)": 256.0
+          "O(log n)": 1.63,
+          "O(n)": 78.73
         },
-        "verdict": "O(n)",
+        "verdict": "O(log n)",
         "decisive": true,
-        "growth_factor": 33.92
+        "growth_factor": 2.5
       }
     }
   }

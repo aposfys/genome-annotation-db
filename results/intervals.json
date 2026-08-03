@@ -14,8 +14,8 @@
     },
     "speedup_over_btree": {
       "btree": 1.0,
-      "binning": 0.73,
-      "rtree": 0.05
+      "binning": 0.71,
+      "rtree": 0.06
     }
   },
   "strategies": [
@@ -23,8 +23,8 @@
       "strategy": "btree",
       "description": "Composite B-tree on (chrom, gene_start), range scan",
       "windows": 900,
-      "per_query_ms": 0.011,
-      "total_ms": 9.87,
+      "per_query_ms": 0.0112,
+      "total_ms": 10.08,
       "rows_returned": 7386,
       "plan": "4 0 50 SEARCH gene USING INDEX idx_gene_locus (chrom=? AND gene_start<?)"
     },
@@ -32,8 +32,8 @@
       "strategy": "binning",
       "description": "UCSC hierarchical binning scheme, pure SQL",
       "windows": 900,
-      "per_query_ms": 0.0151,
-      "total_ms": 13.61,
+      "per_query_ms": 0.0157,
+      "total_ms": 14.14,
       "rows_returned": 7386,
       "plan": "6 0 62 SEARCH b USING INDEX idx_gene_bin (chrom=? AND bin=?) | 69 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 84 0 0 USE TEMP B-TREE FOR ORDER BY"
     },
@@ -41,8 +41,8 @@
       "strategy": "rtree",
       "description": "SQLite R*Tree multidimensional index",
       "windows": 900,
-      "per_query_ms": 0.2007,
-      "total_ms": 180.66,
+      "per_query_ms": 0.1925,
+      "total_ms": 173.22,
       "rows_returned": 7386,
       "plan": "8 0 62 SEARCH m USING INDEX idx_rtree_map_chrom (chrom=?) | 15 0 49 SCAN r VIRTUAL TABLE INDEX 1: | 24 0 46 SEARCH g USING INDEX sqlite_autoindex_gene_1 (gene_id=?) | 37 0 0 USE TEMP B-TREE FOR ORDER BY"
     }

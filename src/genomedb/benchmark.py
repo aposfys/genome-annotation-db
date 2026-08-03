@@ -37,6 +37,7 @@ class Timing:
     seconds: float
     rows: int
     plan: str
+    vm_steps: int = -1
 
     @property
     def milliseconds(self) -> float:
@@ -55,6 +56,17 @@ class Comparison:
         if self.with_indexes.seconds <= 0:
             return float("inf")
         return self.without.seconds / self.with_indexes.seconds
+
+    @property
+    def work_ratio(self) -> float:
+        """Speed-up expressed in engine work rather than elapsed time.
+
+        Wall-clock timings depend on the machine; VM-instruction counts do not,
+        so this is the figure that reproduces on someone else's hardware.
+        """
+        if self.with_indexes.vm_steps <= 0 or self.without.vm_steps <= 0:
+            return float("nan")
+        return self.without.vm_steps / self.with_indexes.vm_steps
 
     @property
     def uses_an_index(self) -> bool:
@@ -79,6 +91,11 @@ class Comparison:
             "without_indexes_ms": round(self.without.milliseconds, 2),
             "with_indexes_ms": round(self.with_indexes.milliseconds, 2),
             "speedup": round(self.speedup, 2),
+            "vm_steps_without_indexes": self.without.vm_steps,
+            "vm_steps_with_indexes": self.with_indexes.vm_steps,
+            "work_ratio": (
+                None if self.work_ratio != self.work_ratio else round(self.work_ratio, 2)
+            ),
             "plan_uses_index": self.uses_an_index,
             "plan_changed": self.plan_changed,
             "plan_with_indexes": self.with_indexes.plan,
@@ -114,12 +131,21 @@ def time_query(
         _, rows = run(conn, query, sql_dir)
         durations.append(time.perf_counter() - start)
 
+    # Counted in a separate pass: the progress handler that makes it possible
+    # also makes execution far slower, so it must never run inside a timed one.
+    # The first count warms the page cache and reads a little high, so a median
+    # of three is used.
+    steps = statistics.median(
+        [conn.count_vm_steps(statement, query.defaults) for _ in range(3)]
+    )
+
     return Timing(
         query=query.name,
         title=query.title,
         seconds=statistics.median(durations),
         rows=len(rows),
         plan=explain(conn, statement, query.defaults),
+        vm_steps=int(steps),
     )
 
 
@@ -176,19 +202,27 @@ def summarise(comparisons: Sequence[Comparison]) -> dict[str, Any]:
         "max_speedup": round(max(speedups), 2) if speedups else None,
         "queries_using_an_index": sum(1 for c in comparisons if c.uses_an_index),
         "queries_with_a_changed_plan": sum(1 for c in comparisons if c.plan_changed),
+        "total_vm_steps_without_indexes": sum(
+            c.without.vm_steps for c in comparisons if c.without.vm_steps > 0
+        ),
+        "total_vm_steps_with_indexes": sum(
+            c.with_indexes.vm_steps for c in comparisons if c.with_indexes.vm_steps > 0
+        ),
     }
 
 
 def render(comparisons: Sequence[Comparison]) -> str:
     """A Markdown table of the comparison, for the README."""
     header = (
-        "| Query | Rows | Without indexes | With indexes | Speed-up | Index used |\n"
-        "| --- | ---: | ---: | ---: | ---: | --- |\n"
+        "| Query | Rows | Without indexes | With indexes | Speed-up | VM steps (without → with) | Work ratio |\n"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n"
     )
     body = "".join(
         f"| {c.without.query} — {c.without.title} | {c.with_indexes.rows} "
         f"| {c.without.milliseconds:,.1f} ms | {c.with_indexes.milliseconds:,.1f} ms "
-        f"| {c.speedup:.1f}× | {'yes' if c.uses_an_index else 'no'} |\n"
+        f"| {c.speedup:.1f}× "
+        f"| {c.without.vm_steps:,} → {c.with_indexes.vm_steps:,} "
+        f"| {c.work_ratio:.1f}× |\n"
         for c in comparisons
     )
     return header + body

@@ -106,6 +106,39 @@ class Connection:
         _, rows = self.query(sql, params)
         return rows[0][0] if rows and rows[0] else None
 
+    def count_vm_steps(self, sql: str, params: Sequence[Any] = ()) -> int:
+        """Virtual-machine instructions the engine executes for a query.
+
+        Wall-clock time answers "how fast is this machine"; this answers "how
+        much work is this query", and gives the same number on every machine.
+        A speed-up expressed in VM steps is therefore reproducible in a way a
+        millisecond figure is not.
+
+        Only SQLite exposes this cheaply, through the progress handler; on
+        other backends it returns -1 rather than pretending.
+        """
+        if not self.backend.is_sqlite:
+            return -1
+
+        steps = 0
+
+        def tick() -> int:
+            nonlocal steps
+            steps += 1
+            return 0
+
+        # A period of 1 counts every instruction. It is slow, which is why this
+        # runs as its own pass and never inside a timed one.
+        self.raw.set_progress_handler(tick, 1)
+        try:
+            cursor = self.raw.cursor()
+            cursor.execute(adapt(sql, self.backend), tuple(params))
+            cursor.fetchall()
+            cursor.close()
+        finally:
+            self.raw.set_progress_handler(None, 0)
+        return steps
+
     def commit(self) -> None:
         self.raw.commit()
 
