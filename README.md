@@ -16,7 +16,7 @@ Clone it and you have a working 148,000-row database in under a second. No serve
 | **Scale** | 769 genes · 9,950 transcripts · 26,970 exons · 97,742 transcript–exon links · 12,596 GO assignments |
 | **Engines** | SQLite by default; the same schema and queries run on MySQL 8 |
 | **Headline** | Indexes buy **48×** on a point lookup and **nothing** on four of seven queries |
-| **Also** | An R\*Tree beats a B-tree 80× on interval search — then loses 16× once the joins around it are counted |
+| **Also** | An R\*Tree beats a B-tree 80× on interval search — then loses 17× once the joins around it are counted |
 | **Validated** | Overlap results agree with `bedtools` on 600/600 windows, including 400 placed on gene boundaries |
 
 ## The result: indexes are not a blanket win
@@ -69,21 +69,21 @@ Measured on real gene coordinates up to the whole genome — see [Empirical comp
 
 ### The result that matters
 
-Run the same comparison against the *real* database and the R\*Tree comes last, 16× slower than the naive B-tree. That contradiction is the most instructive thing in this project, so it was measured rather than explained away:
+Run the same comparison against the *real* database and the R\*Tree comes last, 17× slower than the naive B-tree. That contradiction is the most instructive thing in this project, so it was measured rather than explained away:
 
 | On the real 769-gene database | µs per query |
 | --- | ---: |
-| R\*Tree, bare search | **13.3** |
-| B-tree, single-table scan | 21.9 |
-| R\*Tree **plus the two joins back to `gene`** | **369.3** |
+| R\*Tree, bare search | **12.8** |
+| B-tree, single-table scan | 21.8 |
+| R\*Tree **plus the two joins back to `gene`** | **382.5** |
 
-**The R\*Tree search is the fastest of the three. The joins around it cost 27× more than the search does.**
+**The R\*Tree search is the fastest of the three. The joins around it cost 30× more than the search does.**
 
 An R\*Tree stores integer keys, so recovering the gene identifier and filtering by chromosome needs a mapping table and a join back to `gene` — and at this scale that dominates completely. The index was never the bottleneck; the normalisation around it was.
 
 Two things follow, and neither is visible from a single benchmark:
 
-- **Micro-benchmarks of a data structure can invert once it is embedded in a schema.** The structure that wins in isolation lost by 16× in place.
+- **Micro-benchmarks of a data structure can invert once it is embedded in a schema.** The structure that wins in isolation lost by 17× in place.
 - **The crossover depends on the join cost, not just on n.** Binning wins in practice at this scale precisely because it keeps the coordinates and the key in one indexed table, so it needs no mapping hop. That is very likely why UCSC chose it.
 
 ### A portability trap worth knowing
