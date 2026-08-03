@@ -14,7 +14,17 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from . import benchmark, external, intervals, load, normalisation, quality, queries, scaling
+from . import (
+    benchmark,
+    biomart,
+    external,
+    intervals,
+    load,
+    normalisation,
+    quality,
+    queries,
+    scaling,
+)
 from .db import DB_URL_VAR, connection
 
 DEFAULT_SQL_DIR = Path("sql")
@@ -215,10 +225,18 @@ def cmd_intervals(args: argparse.Namespace) -> int:
 
 def cmd_scaling(args: argparse.Namespace) -> int:
     """Measure how query cost grows with table size, and fit the growth law."""
-    sizes = tuple(args.sizes) if args.sizes else scaling.DEFAULT_SIZES
+    requested = tuple(args.sizes) if args.sizes else scaling.DEFAULT_SIZES
+    source = None if args.synthetic else args.data_dir
+    sizes, available = scaling.usable_sizes(requested, source)
+    if available is not None and sizes != list(requested):
+        print(
+            f"The genome supplies {available:,} genes; measuring at {sizes}"
+            f" rather than {list(requested)}"
+        )
     with connection(args.db_url, args.sqlite_path) as conn:
-        print("Point lookup, with and without an index:")
-        point = scaling.measure_point_lookups(conn, sizes, probes=args.probes)
+        origin = "synthetic intervals" if args.synthetic else "real gene coordinates"
+        print(f"Point lookup, with and without an index ({origin}):")
+        point = scaling.measure_point_lookups(conn, sizes, probes=args.probes, data_dir=source)
         ug, ig = point["unindexed_growth"], point["indexed_growth"]
         print(
             f"  unindexed: {ug['verdict']}"
@@ -231,7 +249,9 @@ def cmd_scaling(args: argparse.Namespace) -> int:
         )
 
         print("\nInterval overlap, three structures:")
-        interval = scaling.measure_interval_strategies(conn, sizes, probes=args.probes)
+        interval = scaling.measure_interval_strategies(
+            conn, sizes, probes=args.probes, data_dir=source
+        )
         print(f"  crossover at n = {interval['crossover_n']}")
 
         _write_json(
@@ -307,6 +327,27 @@ def cmd_normalisation(args: argparse.Namespace) -> int:
             normalisation.render(bcnf, denorm), encoding="utf-8"
         )
         return 0 if bcnf["all_in_bcnf"] and holds["all_hold"] else 1
+
+
+def cmd_fetch(args: argparse.Namespace) -> int:
+    """Regenerate the Ensembl exports from BioMart."""
+    wanted = args.export or list(biomart.BY_NAME)
+    print(
+        f"Ensembl release {biomart.ENSEMBL_RELEASE}"
+        f" ({'archive, pinned' if not args.current else 'current, NOT pinned'})"
+    )
+    for name in wanted:
+        export = biomart.BY_NAME.get(name)
+        if export is None:
+            print(
+                f"Unknown export {name!r}; expected one of {list(biomart.BY_NAME)}",
+                file=sys.stderr,
+            )
+            return 2
+        print(f"  fetching {name}: {export.description}...")
+        path = biomart.fetch(export, args.data_dir, use_archive=not args.current)
+        print(f"    {path.name}  {biomart.row_count(path):,} rows")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -388,6 +429,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sc.add_argument("--sizes", type=int, nargs="*", help="table sizes to measure")
     sc.add_argument("--probes", type=int, default=200, help="queries per size")
+    sc.add_argument(
+        "--synthetic",
+        action="store_true",
+        help="generate intervals instead of using real gene coordinates",
+    )
     sc.set_defaults(func=cmd_scaling)
 
     va = sub.add_parser(
@@ -407,6 +453,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     nf.add_argument("--repeats", type=int, default=20)
     nf.set_defaults(func=cmd_normalisation)
+
+    fe = sub.add_parser(
+        "fetch",
+        parents=[common],
+        help="regenerate the Ensembl exports from BioMart",
+    )
+    fe.add_argument("--export", nargs="*", choices=sorted(biomart.BY_NAME))
+    fe.add_argument(
+        "--current",
+        action="store_true",
+        help="query the current Ensembl release rather than the pinned archive",
+    )
+    fe.set_defaults(func=cmd_fetch)
 
     return parser
 

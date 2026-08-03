@@ -47,24 +47,58 @@ from .db import Connection
 # Kent, W. J. et al. (2002) The human genome browser at UCSC.
 # Genome Research 12, 996-1006.
 
-BIN_OFFSETS = (512 + 64 + 8 + 1, 64 + 8 + 1, 8 + 1, 1, 0)
 # The finest bin spans 2^17 = 128 kb; each coarser level multiplies by 8.
 BIN_FIRST_SHIFT = 17
 BIN_NEXT_SHIFT = 3
 
+# The classic five-level scheme, finest level first. Its coarsest bin covers
+# 2^29 = 512 Mb, which is why UCSC applies it per chromosome: the longest human
+# chromosome is 249 Mb, so one chromosome always fits and a whole genome never
+# does. The extended six-level form reaches 2^32 = 4.3 Gb and does cover one.
+BIN_OFFSETS = (512 + 64 + 8 + 1, 64 + 8 + 1, 8 + 1, 1, 0)
+BIN_OFFSETS_EXTENDED = (4096 + 512 + 64 + 8 + 1, 512 + 64 + 8 + 1, 64 + 8 + 1, 8 + 1, 1, 0)
 
-def assign_bin(start: int, end: int) -> int:
-    """The finest UCSC bin that wholly contains a half-open interval.
+# Largest coordinate each scheme can place.
+BIN_RANGE = 1 << (BIN_FIRST_SHIFT + BIN_NEXT_SHIFT * (len(BIN_OFFSETS) - 1))
+BIN_RANGE_EXTENDED = 1 << (BIN_FIRST_SHIFT + BIN_NEXT_SHIFT * (len(BIN_OFFSETS_EXTENDED) - 1))
+
+
+def scheme_for(max_coordinate: int) -> tuple[int, ...]:
+    """The narrowest scheme that can hold every coordinate in a dataset.
+
+    This must be decided once for a whole dataset and then used for both
+    assignment and lookup. Choosing per interval would put a small feature in a
+    classic bin and then look for it with extended offsets, and the two
+    numberings do not correspond -- the query would silently miss it.
+
+    Using the classic offsets wherever they suffice keeps bin numbers identical
+    to UCSC's for per-chromosome data, which is what makes them comparable with
+    anything else that uses the scheme.
+    """
+    if max_coordinate <= BIN_RANGE:
+        return BIN_OFFSETS
+    if max_coordinate <= BIN_RANGE_EXTENDED:
+        return BIN_OFFSETS_EXTENDED
+    raise ValueError(
+        f"coordinate {max_coordinate:,} exceeds even the extended binning scheme "
+        f"({BIN_RANGE_EXTENDED:,})"
+    )
+
+
+def assign_bin(start: int, end: int, offsets: tuple[int, ...] | None = None) -> int:
+    """The finest bin that wholly contains a half-open interval.
 
     Args:
         start: 0-based inclusive start.
         end: exclusive end.
+        offsets: The dataset's scheme, from :func:`scheme_for`. Defaults to the
+            narrowest that holds this interval, which is only safe when every
+            coordinate in the dataset fits the same scheme.
     """
-    start_bin, end_bin = start, end - 1
-    start_bin >>= BIN_FIRST_SHIFT
-    end_bin >>= BIN_FIRST_SHIFT
+    offsets = offsets or scheme_for(end)
+    start_bin, end_bin = start >> BIN_FIRST_SHIFT, (end - 1) >> BIN_FIRST_SHIFT
 
-    for offset in BIN_OFFSETS:
+    for offset in offsets:
         if start_bin == end_bin:
             return offset + start_bin
         start_bin >>= BIN_NEXT_SHIFT
@@ -73,18 +107,21 @@ def assign_bin(start: int, end: int) -> int:
     raise ValueError(f"interval {start}-{end} exceeds the binning scheme's range")
 
 
-def overlapping_bins(start: int, end: int) -> list[int]:
+def overlapping_bins(
+    start: int, end: int, offsets: tuple[int, ...] | None = None
+) -> list[int]:
     """Every bin an interval could intersect.
 
     A query must look in its own fine bins *and* in every coarser bin above
     them, because a large feature containing the window is stored higher up.
+
+    ``offsets`` must be the same scheme the data was assigned with.
     """
-    start_bin, end_bin = start, end - 1
-    start_bin >>= BIN_FIRST_SHIFT
-    end_bin >>= BIN_FIRST_SHIFT
+    offsets = offsets or scheme_for(end)
+    start_bin, end_bin = start >> BIN_FIRST_SHIFT, (end - 1) >> BIN_FIRST_SHIFT
 
     bins: list[int] = []
-    for offset in BIN_OFFSETS:
+    for offset in offsets:
         bins.extend(range(offset + start_bin, offset + end_bin + 1))
         start_bin >>= BIN_NEXT_SHIFT
         end_bin >>= BIN_NEXT_SHIFT
@@ -119,6 +156,20 @@ def build_btree(conn: Connection) -> None:
     conn.commit()
 
 
+def dataset_scheme(conn: Connection) -> tuple[int, ...]:
+    """The binning scheme this database's coordinates require.
+
+    Cached on the connection: assignment and lookup must agree on the scheme,
+    and re-deriving it inside a timed query would measure the derivation.
+    """
+    cached = getattr(conn, "_bin_scheme", None)
+    if cached is None:
+        largest = int(conn.scalar("SELECT MAX(gene_end) FROM gene") or 1)
+        cached = scheme_for(largest)
+        conn._bin_scheme = cached  # type: ignore[attr-defined]
+    return cached
+
+
 def build_binning(conn: Connection) -> None:
     """Materialise a bin number per gene, indexed by (chrom, bin)."""
     conn.execute("DROP TABLE IF EXISTS gene_bin")
@@ -132,11 +183,12 @@ def build_binning(conn: Connection) -> None:
         ")"
     )
     _, rows = conn.query("SELECT gene_id, chrom, gene_start, gene_end FROM gene")
+    offsets = dataset_scheme(conn)
     conn.executemany(
         "INSERT INTO gene_bin (gene_id, chrom, bin, gene_start, gene_end)"
         " VALUES (?, ?, ?, ?, ?)",
         [
-            (gene_id, chrom, assign_bin(start, end), start, end)
+            (gene_id, chrom, assign_bin(start, end, offsets), start, end)
             for gene_id, chrom, start, end in rows
         ],
     )
@@ -226,7 +278,7 @@ def query(conn: Connection, strategy: str, chrom: str, start: int, end: int) -> 
     if strategy == "btree":
         _, rows = conn.query(BTREE_SQL, (chrom, end, start))
     elif strategy == "binning":
-        bins = overlapping_bins(start, end)
+        bins = overlapping_bins(start, end, dataset_scheme(conn))
         _, rows = conn.query(binning_sql(bins), (chrom, *bins, end, start))
     elif strategy == "rtree":
         _, rows = conn.query(RTREE_SQL, (end, start, chrom))
@@ -243,7 +295,7 @@ def plan(conn: Connection, strategy: str, chrom: str, start: int, end: int) -> s
     if strategy == "btree":
         sql, params = BTREE_SQL, (chrom, end, start)
     elif strategy == "binning":
-        bins = overlapping_bins(start, end)
+        bins = overlapping_bins(start, end, dataset_scheme(conn))
         sql, params = binning_sql(bins), (chrom, *bins, end, start)
     else:
         sql, params = RTREE_SQL, (end, start, chrom)

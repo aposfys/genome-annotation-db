@@ -11,10 +11,14 @@ observed curve against the two candidate laws:
 Fitting both and comparing the residuals says which model the data actually
 supports, rather than assuming the textbook answer.
 
-Synthetic intervals are used rather than real annotation because the question is
-about the structures, and it needs sizes the real chromosomes cannot supply.
-They are drawn to match the real length distribution, which is what determines
-how much a bounding structure can prune.
+Real gene coordinates are used by default: every gene in the human genome,
+78,733 of them, subsampled to each size in the series. Chromosomes 20 and 21
+carry only 769 genes between them, which is why an earlier version of this
+study generated intervals instead -- but the whole genome supplies two orders of
+magnitude more, and real coordinates carry the clustering and the heavy-tailed
+length distribution that decide how much a bounding structure can actually
+prune. Synthetic intervals remain available for sizes beyond what the genome
+provides.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ import statistics
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .db import Connection
@@ -123,6 +128,62 @@ def classify(sizes: Sequence[int], times: Sequence[float]) -> dict[str, Any]:
     }
 
 
+def load_real_intervals(
+    data_dir: Path, count: int | None = None, seed: int = 20250101
+) -> list[tuple[int, str, int, int]]:
+    """Real gene spans from the whole-genome export, optionally subsampled.
+
+    Subsampling preserves the genome-wide mixture of dense and sparse regions,
+    which a per-chromosome slice would not.
+    """
+    import csv
+    import gzip
+
+    path = data_dir / "genes_all.tsv.gz"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found. Fetch it with: genomedb fetch --export genes_all"
+        )
+
+    raw: list[tuple[str, int, int]] = []
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        for record in csv.DictReader(handle, delimiter="\t", quoting=csv.QUOTE_NONE):
+            try:
+                start = int(record["Gene start (bp)"])
+                end = int(record["Gene end (bp)"])
+            except (KeyError, ValueError):
+                continue
+            raw.append((record["Chromosome/scaffold name"], start, end))
+
+    # Chromosome coordinates restart at 1 on every chromosome, so a position
+    # alone is ambiguous. The chromosomes are laid end to end into a single
+    # genome-wide axis -- the same device a genome browser uses -- which lets
+    # every strategy be compared on one coordinate space without a chromosome
+    # predicate that only some of them could use.
+    lengths: dict[str, int] = {}
+    for chrom, _, end in raw:
+        lengths[chrom] = max(lengths.get(chrom, 0), end)
+
+    offset = 0
+    offsets: dict[str, int] = {}
+    for chrom in sorted(lengths):
+        offsets[chrom] = offset
+        offset += lengths[chrom] + 1
+
+    projected = [
+        (chrom, start + offsets[chrom], end + offsets[chrom]) for chrom, start, end in raw
+    ]
+    if count is not None and count < len(projected):
+        projected = random.Random(seed).sample(projected, count)
+    projected.sort(key=lambda row: row[1])
+
+    # A single logical sequence, and dense identifiers for the R*Tree key.
+    return [
+        (index, "genome", start, end)
+        for index, (_chrom, start, end) in enumerate(projected, 1)
+    ]
+
+
 def synthesise(count: int, seed: int = 20250101) -> list[tuple[int, str, int, int]]:
     """Generate interval rows with a realistic length distribution.
 
@@ -157,8 +218,41 @@ def _create_synthetic(conn: Connection, rows: list[tuple[int, str, int, int]]) -
 POINT_LOOKUP = "SELECT id FROM synthetic WHERE span_start = ?"
 
 
+def _rows_for(size: int, data_dir: Path | None) -> list[tuple[int, str, int, int]]:
+    """Real gene spans when the export is available, synthetic otherwise."""
+    if data_dir is not None:
+        try:
+            return load_real_intervals(data_dir, size)
+        except FileNotFoundError:
+            pass
+    return synthesise(size)
+
+
+def usable_sizes(sizes: Sequence[int], data_dir: Path | None) -> tuple[list[int], int | None]:
+    """Drop sizes the real data cannot supply.
+
+    The genome holds a finite number of genes. Asking for more would silently
+    return all of them and report the requested size, so a series that runs past
+    the end is truncated and the ceiling reported instead of being papered over.
+    """
+    if data_dir is None:
+        return list(sizes), None
+    try:
+        available = len(load_real_intervals(data_dir))
+    except FileNotFoundError:
+        return list(sizes), None
+
+    usable = sorted({s for s in sizes if s <= available})
+    if len(usable) < len(sizes):
+        usable = sorted({*usable, available})
+    return usable, available
+
+
 def measure_point_lookups(
-    conn: Connection, sizes: Sequence[int] = DEFAULT_SIZES, probes: int = 200
+    conn: Connection,
+    sizes: Sequence[int] = DEFAULT_SIZES,
+    probes: int = 200,
+    data_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Time an equality lookup with and without an index, across table sizes.
 
@@ -170,7 +264,7 @@ def measure_point_lookups(
     rng = random.Random(7)
 
     for size in sizes:
-        rows = synthesise(size)
+        rows = _rows_for(size, data_dir)
         _create_synthetic(conn, rows)
         targets = [rows[rng.randrange(len(rows))][2] for _ in range(probes)]
 
@@ -209,6 +303,7 @@ def measure_interval_strategies(
     sizes: Sequence[int] = DEFAULT_SIZES,
     probes: int = 100,
     width: int = 1_000_000,
+    data_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Find where each interval structure wins, as the table grows.
 
@@ -226,7 +321,7 @@ def measure_interval_strategies(
     timings: dict[str, list[float]] = {"btree": [], "binning": [], "rtree": []}
 
     for size in sizes:
-        rows = synthesise(size)
+        rows = _rows_for(size, data_dir)
         _create_synthetic(conn, rows)
 
         conn.execute("DROP INDEX IF EXISTS idx_synthetic_locus")
@@ -239,10 +334,12 @@ def measure_interval_strategies(
             "CREATE TABLE synthetic_bin (id INTEGER PRIMARY KEY, bin INTEGER NOT NULL,"
             " span_start INTEGER NOT NULL, span_end INTEGER NOT NULL)"
         )
+        # One scheme for the whole dataset; see intervals.scheme_for.
+        offsets = intervals.scheme_for(max(end for *_, end in rows))
         conn.executemany(
             "INSERT INTO synthetic_bin (id, bin, span_start, span_end) VALUES (?,?,?,?)",
             [
-                (identifier, intervals.assign_bin(start, end), start, end)
+                (identifier, intervals.assign_bin(start, end, offsets), start, end)
                 for identifier, _, start, end in rows
             ],
         )
@@ -258,32 +355,31 @@ def measure_interval_strategies(
         )
         conn.commit()
 
+        ceiling = max(end for _, _, _, end in rows)
         queries = [
             (s, s + width)
-            for s in (rng.randrange(0, COORDINATE_SPAN - width) for _ in range(probes))
+            for s in (rng.randrange(0, max(ceiling - width, 1)) for _ in range(probes))
         ]
 
-        plans = {
-            "btree": (
-                "SELECT id FROM synthetic WHERE chrom='chrS'"
-                " AND span_start <= ? AND span_end >= ?",
-                lambda s, e: (e, s),
-            ),
-            "rtree": (
-                "SELECT id FROM synthetic_rtree WHERE min_start <= ? AND max_end >= ?",
-                lambda s, e: (e, s),
-            ),
-        }
+        label = rows[0][1]
 
-        for name, (sql, bind) in plans.items():
-            start_time = time.perf_counter()
-            for s, e in queries:
-                conn.query(sql, bind(s, e))
-            timings[name].append((time.perf_counter() - start_time) / probes)
+        btree_sql = (
+            "SELECT id FROM synthetic WHERE chrom = ? AND span_start <= ? AND span_end >= ?"
+        )
+        start_time = time.perf_counter()
+        for s, e in queries:
+            conn.query(btree_sql, (label, e, s))
+        timings["btree"].append((time.perf_counter() - start_time) / probes)
+
+        rtree_sql = "SELECT id FROM synthetic_rtree WHERE min_start <= ? AND max_end >= ?"
+        start_time = time.perf_counter()
+        for s, e in queries:
+            conn.query(rtree_sql, (e, s))
+        timings["rtree"].append((time.perf_counter() - start_time) / probes)
 
         start_time = time.perf_counter()
         for s, e in queries:
-            bins = intervals.overlapping_bins(s, e)
+            bins = intervals.overlapping_bins(s, e, offsets)
             placeholders = ", ".join("?" for _ in bins)
             conn.query(
                 f"SELECT id FROM synthetic_bin WHERE bin IN ({placeholders})"
