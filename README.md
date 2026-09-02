@@ -36,6 +36,28 @@ genomedb region 20 1000000 2000000 --strategy rtree
 genomedb fetch                     # regenerate the Ensembl exports, pinned release
 ```
 
+### Prior work
+
+Genomic interval indexing is a solved and well-published problem, and none of the three
+strategies compared here is original to this repository:
+
+- **UCSC binning** — the hierarchical bin scheme behind the UCSC Genome Browser, BEDTools and
+  SAMtools, which keeps the bin alongside the coordinate so an overlap query pre-filters on
+  bins. Its known weakness is exactly the one seen here: when query intervals share the same
+  bias, few bins are examined and each contains many intervals to enumerate.
+- **Binary Interval Search (BITS)**, *Bioinformatics* 2013, and **augmented range trees**,
+  *Scientific Reports* 2019 — the scalable alternatives, both benchmarked at genome scale.
+- **Segment trees** (Segtor, *PLOS One* 2011) for annotating coordinates and variants.
+
+The R\*Tree-loses-in-place result is therefore an implementation observation rather than a new
+algorithmic finding, and its explanation — that keeping coordinates and key in one table
+avoids the joins that dominate — is the reason the published schemes are shaped the way they
+are. At 769 genes this is also far below the scale those papers benchmark at.
+
+Read it as a schema-design and benchmarking exercise that measures a known trade-off
+carefully, and validates its interval logic against bedtools, catching a real off-by-one in
+the process. That validation is the part worth keeping.
+
 ### More
 
 - [Benchmarks in full: index timings, interval structures, empirical complexity](docs/BENCHMARKS.md)
