@@ -1,0 +1,24 @@
+# Upstream releases reach the nightly Pipeline the moment they ship, because
+# every dependency is lower-bounded rather than pinned. A silent RDKit bump is
+# what broke the analysis in September 2026. Dependabot turns those bumps into
+# reviewable pull requests instead of 3am failures.
+version: 2
+
+updates:
+  # The workflow actions themselves. Several still target the deprecated
+  # Node 20 runtime, which GitHub now forces onto Node 24.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
