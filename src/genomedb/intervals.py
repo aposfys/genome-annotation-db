@@ -205,7 +205,12 @@ def build_rtree(conn: Connection) -> None:
     conn.execute("DROP TABLE IF EXISTS gene_rtree_map")
     # R*Tree keys are integers, so a mapping table carries the gene identifier
     # and the chromosome, which the tree itself cannot store.
-    conn.execute("CREATE VIRTUAL TABLE gene_rtree USING rtree(id, min_start, max_end)")
+    #
+    # rtree_i32, not rtree. The plain module stores 32-bit floats, which hold
+    # integers exactly only up to 2^24 = 16.7 Mb. Above that the boxes are
+    # rounded outward, so a gene ending just before a window can be reported as
+    # overlapping it. 636 of the 769 genes here lie beyond 16.7 Mb.
+    conn.execute("CREATE VIRTUAL TABLE gene_rtree USING rtree_i32(id, min_start, max_end)")
     conn.execute(
         "CREATE TABLE gene_rtree_map ("
         "  id INTEGER PRIMARY KEY, gene_id VARCHAR(30) NOT NULL, chrom VARCHAR(10) NOT NULL"

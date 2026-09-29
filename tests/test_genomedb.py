@@ -397,6 +397,35 @@ def test_all_strategies_return_identical_results(interval_db):
         assert len(set(results.values())) == 1, (chrom, start, end, results)
 
 
+def test_rtree_is_exact_above_float32_precision(interval_db):
+    """Coordinates above 2^24 must not be rounded into a false overlap.
+
+    A float32 R*Tree stores 40,010,999 as 40,010,996, so a window ending three
+    bases before the gene would report it. Every strategy must agree on windows
+    that stop one base short of either end, and none may return the gene.
+    """
+    from genomedb import intervals
+
+    start, end = 40_010_999, 40_020_001
+    interval_db.execute(
+        "INSERT INTO gene (gene_id, gene_name, chrom, gene_start, gene_end, strand, biotype)"
+        " VALUES ('G9', 'FAR', '20', ?, ?, 1, 'protein_coding')",
+        (start, end),
+    )
+    interval_db.commit()
+    for strategy in intervals.STRATEGIES:
+        intervals.build(interval_db, strategy.name)
+
+    for chrom, lo, hi in [("20", start - 1000, start - 1), ("20", end + 1, end + 1000)]:
+        for strategy in intervals.STRATEGIES:
+            rows = intervals.query(interval_db, strategy.name, chrom, lo, hi)
+            assert rows == [], (strategy.name, lo, hi, rows)
+
+    for strategy in intervals.STRATEGIES:
+        rows = intervals.query(interval_db, strategy.name, "20", start - 1000, start)
+        assert rows == [("G9", "FAR", start, end)], (strategy.name, rows)
+
+
 # --- scaling -----------------------------------------------------------------
 
 
