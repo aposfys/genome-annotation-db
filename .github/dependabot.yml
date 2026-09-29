@@ -1,7 +1,7 @@
 # Upstream releases reach the nightly Pipeline the moment they ship, because
-# every dependency is lower-bounded rather than pinned. A silent RDKit bump is
-# what broke the analysis in September 2026. Dependabot turns those bumps into
-# reviewable pull requests instead of 3am failures.
+# the dev tools are lower-bounded rather than pinned and the workflow actions
+# float on major tags. Dependabot turns those bumps into reviewable pull
+# requests instead of 3am failures.
 version: 2
 
 updates:
