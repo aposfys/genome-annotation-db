@@ -79,12 +79,7 @@
   },
   "dependencies_in_data": {
     "checked": 5,
-    "violations": {
-      "gene: gene_id -> gene_name, chrom, gene_start, gene_end, strand, biotype": "uncheckable: wrong number of arguments to function COUNT()",
-      "transcript: transcript_id -> gene_id, tx_start, tx_end, tx_length": "uncheckable: wrong number of arguments to function COUNT()",
-      "exon: exon_id -> exon_start, exon_end": "uncheckable: wrong number of arguments to function COUNT()",
-      "go_term: go_id -> go_name, go_namespace": "uncheckable: wrong number of arguments to function COUNT()"
-    },
+    "violations": {},
     "all_hold": true
   },
   "denormalisation": {

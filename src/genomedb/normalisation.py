@@ -158,18 +158,26 @@ def verify_against_data(conn: Connection) -> dict[str, Any]:
     """Check the declared dependencies actually hold in the loaded data.
 
     A dependency the schema does not enforce can still be violated by a load
-    bug. This counts determinant values mapping to more than one dependent
-    value, which is what a violation looks like in practice.
+    bug. This counts determinant values mapping to more than one distinct
+    dependent tuple, which is what a violation looks like in practice.
+
+    The distinct tuples are taken in a subquery because SQLite's
+    ``COUNT(DISTINCT ...)`` accepts only one column. A check that cannot run is
+    reported as not holding, never as holding.
+
+    Every determinant declared here is a primary key, so in this schema the
+    database already enforces each dependency and the check confirms that
+    rather than testing anything the constraints leave open.
     """
     findings: dict[str, int | str] = {}
     for relation in SCHEMA:
         for dependency in relation.dependencies:
             determinant = ", ".join(dependency.determinant)
-            dependent = ", ".join(dependency.dependent)
+            columns = ", ".join(dependency.determinant + dependency.dependent)
             sql = (
-                f"SELECT COUNT(*) FROM (SELECT {determinant} FROM {relation.name}"
-                f" GROUP BY {determinant}"
-                f" HAVING COUNT(DISTINCT {dependent}) > 1) AS violations"
+                f"SELECT COUNT(*) FROM (SELECT {determinant}"
+                f" FROM (SELECT DISTINCT {columns} FROM {relation.name}) AS pairs"
+                f" GROUP BY {determinant} HAVING COUNT(*) > 1) AS violations"
             )
             try:
                 count = int(conn.scalar(sql) or 0)
@@ -180,7 +188,7 @@ def verify_against_data(conn: Connection) -> dict[str, Any]:
     return {
         "checked": len(findings),
         "violations": {k: v for k, v in findings.items() if v not in (0, "0")},
-        "all_hold": all(v == 0 for v in findings.values() if isinstance(v, int)),
+        "all_hold": all(v == 0 for v in findings.values()),
     }
 
 

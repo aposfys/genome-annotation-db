@@ -565,7 +565,51 @@ def test_declared_dependencies_hold_in_the_data(tiny_db):
 
     conn, _ = tiny_db
     result = normalisation.verify_against_data(conn)
-    assert result["all_hold"], result["violations"]
+    assert result["checked"] == 5
+    assert result["violations"] == {}
+    assert result["all_hold"]
+
+
+def test_dependency_check_finds_a_multi_column_violation(tiny_db, monkeypatch):
+    """The check must be able to fail, including on a multi-column dependent."""
+    from genomedb import normalisation
+    from genomedb.normalisation import Dependency, Relation
+
+    conn, _ = tiny_db
+    conn.execute("CREATE TABLE fd_probe (k INTEGER, v TEXT, w TEXT)")
+    conn.executemany(
+        "INSERT INTO fd_probe (k, v, w) VALUES (?, ?, ?)",
+        [(1, "a", "x"), (1, "a", "y"), (2, "c", "z"), (2, "c", "z")],
+    )
+    conn.commit()
+    probe = Relation(
+        name="fd_probe",
+        attributes=("k", "v", "w"),
+        candidate_keys=(("k", "v", "w"),),
+        dependencies=(Dependency("fd_probe", ("k",), ("v", "w")),),
+    )
+    monkeypatch.setattr(normalisation, "SCHEMA", (probe,))
+
+    result = normalisation.verify_against_data(conn)
+    assert result["violations"] == {"fd_probe: k -> v, w": 1}
+    assert not result["all_hold"]
+
+
+def test_a_dependency_check_that_cannot_run_does_not_hold(tiny_db, monkeypatch):
+    from genomedb import normalisation
+    from genomedb.normalisation import Dependency, Relation
+
+    conn, _ = tiny_db
+    broken = Relation(
+        name="gene",
+        attributes=("gene_id", "no_such_column"),
+        candidate_keys=(("gene_id",),),
+        dependencies=(Dependency("gene", ("gene_id",), ("no_such_column",)),),
+    )
+    monkeypatch.setattr(normalisation, "SCHEMA", (broken,))
+
+    result = normalisation.verify_against_data(conn)
+    assert not result["all_hold"]
 
 
 def test_denormalisation_measures_a_real_trade_off(tiny_db):
