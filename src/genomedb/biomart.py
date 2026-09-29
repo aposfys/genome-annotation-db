@@ -1,13 +1,16 @@
-"""Regenerating the Ensembl exports, so the data has verifiable provenance.
+"""The BioMart queries behind the Ensembl exports.
 
 The exports in ``data/`` were originally produced by hand through the BioMart
 web interface, which makes them a snapshot nobody can check: if the numbers a
 query produces disagree with a previous run, there is no way to tell whether the
 code changed or the download did.
 
-This module holds the exact queries instead. Each export can be regenerated, and
-because the Ensembl release is pinned in the URL, regenerating it tomorrow gives
-the same rows it gave today.
+This module holds the queries instead, so the exports can be regenerated from a
+pinned release. As written they do not yet reproduce the committed files. The
+archive URL below does not resolve to a BioMart service, the chromosome 20 and
+21 gene query has no protein-coding filter, and it asks for unique rows while
+the committed GO export repeats each gene-GO pair. docs/DATA.md records what is
+known about where each committed file came from.
 
 That matters here for a concrete reason. An earlier result file for the GO
 namespace query reports 769 genes and 13,939 annotations; the export shipped

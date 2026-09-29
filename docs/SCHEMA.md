@@ -12,7 +12,7 @@ Six tables, third normal form, with two junction tables carrying the many-to-man
 relationships.
 
 **The exon model is the design decision that matters.** An exon is shared between
-transcripts rather than duplicated per transcript — 26,970 distinct exons support 97,742
+transcripts rather than duplicated per transcript. 26,970 distinct exons support 97,742
 transcript–exon links, so the average exon is used by 3.6 transcripts. Modelling that as a
 junction table is what makes Q7 answerable at all: *how much of a gene's exon set is
 constitutive, and how much is alternative?* PLCB4 turns out to have 172 distinct exons of
@@ -24,7 +24,9 @@ question unanswerable without string-matching coordinates.
 ## Normalisation: proved, then priced
 
 `make normalisation` states the functional dependencies, checks Boyce-Codd Normal Form
-against them mechanically, and confirms the dependencies actually hold in the loaded data.
+against them mechanically, and counts violations of each dependency in the loaded data. Every
+determinant here is a primary key, so the database already enforces each dependency, and the
+data check confirms that rather than testing anything the constraints leave open.
 
 | Relation | Candidate key | BCNF |
 | --- | --- | --- |
@@ -50,14 +52,16 @@ Counting a transcript's exons means joining the junction table every time:
 
 | | 9,950 transcripts |
 | --- | ---: |
-| Join every time (normalised) | 8.51 ms |
-| Materialised column | 1.94 ms |
-| | **4.4× faster** |
+| Join every time (normalised) | 17.0 ms |
+| Materialised column | 3.7 ms |
+| | **4.5× faster** |
 
-So normalisation costs about 6.6 ms on this query. What it buys is that the answer cannot be
+So normalisation costs about 13 ms on this query in the committed run
+([`results/normalisation.json`](../results/normalisation.json)). The ratio is steadier across
+runs than the milliseconds. What it buys is that the answer cannot be
 wrong: nothing in the schema can keep a materialised count true, and any write to
-`transcript_exon` that forgets to update it leaves the two disagreeing — a constraint cannot
-express that dependency. The 4.4× is the price of that guarantee, stated rather than
+`transcript_exon` that forgets to update it leaves the two disagreeing, and a constraint
+cannot express that dependency. The 4.4× is the price of that guarantee, stated rather than
 assumed.
 
 ## Data quality
@@ -75,10 +79,12 @@ Rejected:
   go: no accession                    3,352   e.g. gene ENSG00000260861
 ```
 
-**6,835 of the 69,501 GO rows — just under 10% — are unusable**, carrying an accession with
-no domain or no accession at all. That is a property of the BioMart export, not a bug, but a
-loader that discards them without saying so is hiding the fact that a tenth of the
-annotation never arrived.
+**The loader rejects 6,835 of the 69,501 GO rows**, just under 10%. 3,483 carry an accession
+with no usable domain and 3,352 carry no accession at all. Rows are not annotations, though.
+The export repeats each gene–GO pair about five times, and 490 of the 502 genes with an empty
+row also have real GO rows. Counted as distinct gene–GO pairs, the rejections lose 841 of
+13,437, or 6.3%, all of them terms with no usable domain. That is a property of the BioMart
+export, not a bug, but a loader that discards rows without saying so hides even that.
 
 Nine integrity checks then run against the loaded database: orphan rows in each junction
 table, namespaces outside BP/MF/CC, invalid strands, inverted coordinate spans, transcripts
@@ -91,7 +97,7 @@ something reads it. A test asserts the constraints are actually enforced.
 
 ## The discrepancy, explained
 
-An earlier result file for the GO namespace query contains a single row — biological process
+An earlier result file for the GO namespace query contains a single row, biological process
 only, 769 genes, 13,939 annotations. The rebuilt database reports all three namespaces:
 
 | Namespace | Genes | Annotations | Mean per gene |
@@ -101,7 +107,7 @@ only, 769 genes, 13,939 annotations. The rebuilt database reports all three name
 | Molecular function | 701 | 3,356 | 4.79 |
 
 Rather than leave that unexplained, the old numbers were reproduced from the shipped export.
-**Ignoring the GO domain entirely — collapsing every term into one namespace — gives 757
+**Ignoring the GO domain entirely, collapsing every term into one namespace, gives 757
 genes and 13,437 annotations**, against the original's 769 and 13,939. That is within 1.6%
 and 3.6%, and it reproduces the *shape* exactly.
 
@@ -109,14 +115,15 @@ So there were two causes, not one:
 
 - **The namespace was collapsed.** Respecting the GO domain gives 12,596 pairs across three
   namespaces; ignoring it gives 13,437 in one. The original is the second shape.
-- **The source export was slightly larger.** The residual — 12 genes and 502 annotations —
+- **The source export was slightly larger.** The residual of 12 genes and 502 annotations
   is consistent with the original having been loaded from a marginally different download.
 
-The second half is why `genomedb fetch` exists. The exports were originally produced by hand
-through the BioMart web interface, so there was no way to tell whether a disagreement came
-from the code or the data. The queries are now in
-[`biomart.py`](../src/genomedb/biomart.py), pinned to **Ensembl release 113** through the
-archive URL, and any export can be regenerated byte-for-byte.
+The second half is why `genomedb fetch` exists. The exports were produced by hand through the
+BioMart web interface, so there was no way to tell whether a disagreement came from the code
+or the data. The queries are now written down in
+[`biomart.py`](../src/genomedb/biomart.py), but they do not yet reproduce the committed
+exports, and the release each export came from is not recorded.
+[`DATA.md`](DATA.md#provenance) lists what is known and what is not.
 
 ## Design decisions
 
@@ -127,8 +134,8 @@ archive URL, and any export can be regenerated byte-for-byte.
   parameters rather than SQL literals, so they are reusable and cannot be broken by a
   quoting mistake.
 - **`CHECK` constraints instead of MySQL's `ENUM`.** Equivalent expressiveness, and it runs
-  on both engines. Constraints also encode the domain rules — strand is ±1, spans are
-  non-inverted, exon ranks start at 1 — so bad data is rejected by the database rather than
+  on both engines. Constraints also encode the domain rules (strand is ±1, spans are
+  non-inverted, exon ranks start at 1), so bad data is rejected by the database rather than
   by convention.
 - **No columns the loader cannot fill.** `transcript_name` and `biotype` were declared but
   never populated, showing up as blank columns in every result. Dropped. `tx_length` was
@@ -146,7 +153,10 @@ pip install -e ".[mysql]"
 make build
 ```
 
-`mysql-connector-python` is an optional extra, imported only if a MySQL URL is used.
+`mysql-connector-python` is an optional extra, imported only if a MySQL URL is used. CI runs
+only on SQLite, so the MySQL path is untested. The benchmark and interval subcommands use
+SQLite-only DDL (`DROP INDEX IF EXISTS`, the R\*Tree module) and will not run on MySQL as
+written.
 
 ## Repository layout
 
@@ -160,14 +170,15 @@ src/genomedb/
   load.py       Validating ETL with rejection reporting
   queries.py    Query registry, runner and TSV output
   quality.py    Integrity and consistency checks
-  biomart.py    Pinned Ensembl queries, so every export can be regenerated
+  biomart.py    The BioMart queries behind the exports (see docs/DATA.md)
   intervals.py  UCSC binning (classic and extended), R*Tree, B-tree
   external.py   bedtools cross-validation and BED coordinate conversion
   normalisation.py  Functional dependencies, BCNF check, denormalisation cost
   scaling.py    Growth measurement and growth-law classification
   benchmark.py  Index timing and query-plan capture
-  cli.py        Subcommands: build, query, gene, go, check, benchmark
-data/           Ensembl BioMart exports, gzipped (1.7 MB)
+  cli.py        Subcommands: build, query, gene, go, check, benchmark, region,
+                intervals, scaling, validate, normalisation, fetch
+data/           Four Ensembl BioMart exports, gzipped (3.1 MB)
 results/        Query output, load report, quality report, benchmark
-tests/          pytest suite (55 tests)
+tests/          pytest suite (58 tests)
 ```
